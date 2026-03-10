@@ -1,0 +1,139 @@
+---
+import Layout from '../layouts/Layout.astro';
+import db from '../lib/db.js';
+
+// Fetch all votations
+const votations = db.prepare(`
+  SELECT v.id, v.subject, v.start_date, s.session_number
+  FROM votations v
+  JOIN sessions s ON v.session_id = s.id
+  ORDER BY v.start_date DESC
+`).all();
+
+const formatDate = (dateString) => {
+  const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  return new Date(dateString).toLocaleDateString('es-GT', options);
+};
+---
+
+<Layout title="Todas las Votaciones">
+  <div class="page-header">
+    <h1>Hemeroteca de Votaciones</h1>
+    <p class="text-muted">Explora y filtra {votations.length} votaciones registradas en el Congreso.</p>
+  </div>
+
+  <div class="filters glass-panel">
+    <div class="filter-group" style="width: 100%;">
+      <label for="searchSubject">Buscar por Tema / Decreto</label>
+      <input type="text" id="searchSubject" placeholder="Ej. Presupuesto, Estado de Calamidad..." />
+    </div>
+  </div>
+
+  <div class="votation-list" id="votationList">
+    {votations.map((v, index) => (
+      <a href={`/votation/${v.id}`} class="votation-card glass-panel" data-subject={v.subject.toLowerCase()}>
+        <div class="votation-number">#{votations.length - index}</div>
+        <div class="votation-info">
+          <h3>{v.subject}</h3>
+          <div class="meta-tags">
+            <span class="badge" style="background: var(--bg-tertiary)">Sesión {v.session_number}</span>
+            <span class="text-muted text-small">{formatDate(v.start_date)}</span>
+          </div>
+        </div>
+      </a>
+    ))}
+  </div>
+</Layout>
+
+<script>
+  const searchSubject = document.getElementById('searchSubject');
+  const cards = document.querySelectorAll('.votation-card');
+
+  function filterCards() {
+    const val = searchSubject.value.toLowerCase();
+    cards.forEach(card => {
+      if (card.dataset.subject.includes(val)) {
+        card.style.display = 'flex';
+      } else {
+        card.style.display = 'none';
+      }
+    });
+  }
+
+  // Use a small debounce if the list is huge, but for ~1000 items vanilla JS is instantly fast
+  searchSubject.addEventListener('input', filterCards);
+</script>
+
+<style>
+  .page-header { margin-bottom: 2rem; }
+  
+  .filters {
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+  }
+  
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .filter-group label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .filter-group input {
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-size: 1rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--transition-fast);
+  }
+
+  .filter-group input:focus { border-color: var(--accent-color); }
+
+  .votation-list { display: flex; flex-direction: column; gap: 1rem; }
+  
+  .votation-card { 
+    display: flex; 
+    align-items: flex-start; 
+    gap: 1.5rem; 
+    padding: 1.5rem; 
+    color: inherit; 
+    transition: border-color var(--transition-fast), transform var(--transition-fast); 
+  }
+  
+  .votation-number {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--bg-tertiary);
+    background: var(--text-muted);
+    min-width: 50px;
+    height: 50px;
+    padding: 0 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+
+  .votation-info h3 { margin: 0 0 0.75rem 0; font-size: 1.1rem; line-height: 1.4; color: var(--text-light); }
+  
+  .meta-tags {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  
+  .text-small { font-size: 0.85rem; }
+
+  .votation-card:hover { border-color: var(--accent-color); transform: translateX(5px); }
+  .votation-card:hover .votation-number { background: var(--accent-color); color: var(--bg-color); }
+</style>

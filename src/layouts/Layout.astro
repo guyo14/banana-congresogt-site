@@ -1,0 +1,43 @@
+---
+import '../styles/global.css';
+
+interface Props {
+	title: string;
+	description?: string;
+}
+
+const { title, description = "Analiza el comportamiento y las votaciones de los diputados en el Congreso." } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width" />
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+	<meta name="generator" content={Astro.generator} />
+	<meta name="description" content={description} />
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+	<title>{title} | Banana Tracker</title>
+</head>
+<body>
+	<nav class="navbar">
+		<div class="nav-container">
+			<a href="/" class="nav-logo">
+				🍌 Banana<span>Tracker</span>
+			</a>
+			<div class="nav-links">
+				<a href="/congressmen">Diputados</a>
+				<a href="/parties">Bancadas</a>
+				<a href="/districts">Distritos</a>
+				<a href="/sessions">Sesiones</a>
+				<a href="/votations">Votaciones</a>
+			</div>
+		</div>
+	</nav>
+
+	<main class="container">
+		<slot />
+	</main>
+</body>
+</html>

@@ -1,0 +1,273 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import db from '../../lib/db.js';
+
+export async function getStaticPaths() {
+  const votations = db.prepare('SELECT id FROM votations').all();
+  return votations.map(v => ({
+    params: { id: v.id.toString() }
+  }));
+}
+
+const { id } = Astro.params;
+
+// Fetch Votation info
+const votation = db.prepare(`
+  SELECT v.id, v.subject, v.start_date, s.session_number 
+  FROM votations v
+  JOIN sessions s ON v.session_id = s.id
+  WHERE v.id = ?
+`).get(id);
+
+// Fetch all votes for this votation
+const votesList = db.prepare(`
+  SELECT 
+    v.vote_type, 
+    c.id as congressman_id, c.first_name, c.last_name, c.photo_url,
+    p.name as party_name, p.id as party_id
+  FROM votes v
+  JOIN congressmen c ON v.congressman_id = c.id
+  LEFT JOIN parties p ON c.party_id = p.id
+  WHERE v.votation_id = ?
+  ORDER BY p.name ASC, c.first_name ASC
+`).all(id);
+
+const formatDate = (dateString) => {
+  const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  return new Date(dateString).toLocaleDateString('es-GT', options);
+};
+
+// Calculate totals
+const totalVotes = votesList.length;
+const totalFavor = votesList.filter(v => v.vote_type === 'a_favor').length;
+const totalContra = votesList.filter(v => v.vote_type === 'en_contra').length;
+const totalAbsent = votesList.filter(v => v.vote_type === 'ausente').length;
+
+const favorPct = totalVotes > 0 ? (totalFavor / totalVotes) * 100 : 0;
+const contraPct = totalVotes > 0 ? (totalContra / totalVotes) * 100 : 0;
+const formatPct = (num) => num.toFixed(1);
+
+// Group by party for a breakdown
+const partyBreakdown = {};
+votesList.forEach(v => {
+  const pname = v.party_name || 'Sin Bancada';
+  if (!partyBreakdown[pname]) {
+    partyBreakdown[pname] = { favor: 0, contra: 0, absent: 0, total: 0, id: v.party_id };
+  }
+  partyBreakdown[pname].total++;
+  if (v.vote_type === 'a_favor') partyBreakdown[pname].favor++;
+  else if (v.vote_type === 'en_contra') partyBreakdown[pname].contra++;
+  else partyBreakdown[pname].absent++;
+});
+
+// Convert party breakdown to array and sort by total seats
+const partyList = Object.entries(partyBreakdown)
+  .map(([name, data]) => ({ name, ...data }))
+  .sort((a, b) => b.total - a.total);
+
+// Outcome logic
+let outcomeLabel = 'RECHAZADO';
+let outcomeColor = 'var(--color-contra)';
+// Typically, simple majority of those present (or total seats 160) - using simple heuristic favor > contra
+if (totalFavor > totalContra) {
+  outcomeLabel = 'APROBADO';
+  outcomeColor = 'var(--color-favor)';
+}
+
+// Utility to render the dots for votes
+const getVoteColor = (type) => {
+  if (type === 'a_favor') return 'var(--color-favor)';
+  if (type === 'en_contra') return 'var(--color-contra)';
+  return 'var(--color-ausente)';
+};
+---
+
+<Layout title={`Votación: ${votation.subject.substring(0, 30)}...`}>
+  <div class="page-header">
+    <div class="header-meta">
+      <a href={`/session/${votation.session_number}`} class="badge" style="background: var(--bg-tertiary)">Sesión {votation.session_number}</a>
+      <span class="text-muted">{formatDate(votation.start_date)}</span>
+      <span class="outcome-badge" style={`color: ${outcomeColor}; border-color: ${outcomeColor}; background: ${outcomeColor}22`}>
+        {outcomeLabel}
+      </span>
+    </div>
+    <h1>{votation.subject}</h1>
+  </div>
+
+  <div class="stats-container mb-3">
+    <div class="stats-card glass-panel">
+      <h2>Resultado General</h2>
+      <div class="chart-wrapper">
+        <div class="pie-chart" style={`background: conic-gradient(
+          var(--color-favor) 0% ${favorPct}%, 
+          var(--color-contra) ${favorPct}% ${favorPct + contraPct}%, 
+          var(--color-ausente) ${favorPct + contraPct}% 100%
+        )`}></div>
+        <div class="chart-legend">
+          <div class="legend-item"><span style="background: var(--color-favor)"></span> A Favor: <strong>{totalFavor}</strong> ({formatPct(favorPct)}%)</div>
+          <div class="legend-item"><span style="background: var(--color-contra)"></span> En Contra: <strong>{totalContra}</strong> ({formatPct(contraPct)}%)</div>
+          <div class="legend-item"><span style="background: var(--color-ausente)"></span> Ausente: <strong>{totalAbsent}</strong> ({formatPct(100 - favorPct - contraPct)}%)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-card glass-panel party-breakdown">
+      <h2>Votos por Bancada</h2>
+      <div class="breakdown-list">
+        {partyList.map(p => (
+          <div class="party-row">
+            <div class="party-name-col">
+              {p.id ? <a href={`/party/${p.id}`}>{p.name}</a> : <span>{p.name}</span>}
+              <span class="text-muted text-small">({p.total})</span>
+            </div>
+            <div class="party-bar-container">
+              {p.favor > 0 && <div class="party-bar pb-favor" style={`width: ${(p.favor/p.total)*100}%`} title={`A Favor: ${p.favor}`}></div>}
+              {p.contra > 0 && <div class="party-bar pb-contra" style={`width: ${(p.contra/p.total)*100}%`} title={`En Contra: ${p.contra}`}></div>}
+              {p.absent > 0 && <div class="party-bar pb-absent" style={`width: ${(p.absent/p.total)*100}%`} title={`Ausente: ${p.absent}`}></div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+
+  <div class="individual-section glass-panel">
+    <div class="section-top">
+      <h2>Votos Individuales ({totalVotes})</h2>
+      <div class="filter-group">
+        <input type="text" id="filterInput" placeholder="Buscar diputado..." />
+      </div>
+    </div>
+
+    <div class="vote-grid" id="voteGrid">
+      {votesList.map(v => (
+        <a href={`/congressman/${v.congressman_id}`} class="ind-vote-card" data-name={`${v.first_name} ${v.last_name}`.toLowerCase()}>
+          <div class="ind-photo">
+            {v.photo_url ? <img src={v.photo_url.replace('.jpg', '_thumb.jpg')} alt={v.first_name} loading="lazy" onerror="this.src='/placeholder.svg'; this.onerror=null;"/> : <div class="placeholder-img">👤</div>}
+          </div>
+          <div class="ind-info">
+            <h4>{v.first_name} {v.last_name}</h4>
+            <span class="badge-party text-small">{v.party_name}</span>
+          </div>
+          <div class="ind-vote-indicator" style={`background: ${getVoteColor(v.vote_type)}`} title={v.vote_type.replace('_', ' ')}></div>
+        </a>
+      ))}
+    </div>
+  </div>
+</Layout>
+
+<script>
+  const filterInput = document.getElementById('filterInput');
+  const cards = document.querySelectorAll('.ind-vote-card');
+
+  if (filterInput) {
+    filterInput.addEventListener('input', () => {
+      const val = filterInput.value.toLowerCase();
+      cards.forEach(card => {
+        if (card.dataset.name.includes(val)) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    });
+  }
+</script>
+
+<style>
+  .page-header { margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 2rem;}
+  .header-meta { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .page-header h1 { font-size: 2rem; margin-bottom: 0.5rem; line-height: 1.3; }
+  
+  .outcome-badge {
+    padding: 0.3em 0.8em;
+    border-radius: 999px;
+    font-weight: bold;
+    font-size: 0.85rem;
+    border: 1px solid;
+    margin-left: auto;
+  }
+  
+  .mb-3 { margin-bottom: 3rem; }
+  .text-small { font-size: 0.8rem; }
+
+  .stats-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 2rem; }
+  .stats-card { display: flex; flex-direction: column; gap: 1.5rem; }
+  .chart-wrapper { display: flex; align-items: center; gap: 1.5rem; }
+  
+  /* Pie Chart */
+  .pie-chart { width: 140px; height: 140px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 6px var(--bg-secondary); }
+  .chart-legend { display: flex; flex-direction: column; gap: 0.75rem; }
+  .legend-item { font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-main); }
+  .legend-item span { width: 14px; height: 14px; border-radius: 3px; display: inline-block; flex-shrink: 0;}
+
+  /* Party Breakdown */
+  .party-breakdown { overflow: hidden; }
+  .breakdown-list { display: flex; flex-direction: column; gap: 0.5rem; overflow-y: auto; max-height: 300px; padding-right: 0.5rem; }
+  .breakdown-list::-webkit-scrollbar { width: 6px; }
+  .breakdown-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+  
+  .party-row { display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
+  .party-name-col { width: 120px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .party-name-col a { color: var(--text-light); }
+  .party-name-col a:hover { color: var(--accent-color); text-decoration: underline; }
+  
+  .party-bar-container { flex-grow: 1; height: 10px; display: flex; border-radius: 5px; overflow: hidden; background: var(--bg-tertiary); }
+  .pb-favor { background: var(--color-favor); }
+  .pb-contra { background: var(--color-contra); }
+  .pb-absent { background: var(--color-ausente); }
+
+  /* Individuals */
+  .individual-section { padding: 2rem; }
+  .section-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+  .section-top h2 { margin: 0; }
+  
+  .filter-group input {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    outline: none;
+  }
+  .filter-group input:focus { border-color: var(--accent-color); }
+
+  .vote-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+  }
+
+  .ind-vote-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: inherit;
+    transition: transform var(--transition-fast), border-color var(--transition-fast);
+  }
+
+  .ind-vote-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-color);
+  }
+
+  .ind-photo {
+    width: 40px; height: 40px; border-radius: 50%; overflow: hidden; background: var(--bg-tertiary); flex-shrink: 0;
+  }
+  .ind-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .placeholder-img { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+
+  .ind-info { flex-grow: 1; min-width: 0; }
+  .ind-info h4 { margin: 0 0 0.2rem 0; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-light); }
+  
+  .badge-party { color: var(--text-muted); }
+
+  .ind-vote-indicator {
+    width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+    box-shadow: 0 0 0 2px var(--bg-secondary);
+  }
+</style>

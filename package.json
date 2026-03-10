@@ -1,0 +1,17 @@
+{
+  "name": "banana-tracker",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Explora el congreso",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "astro": "^5.17.1",
+    "better-sqlite3": "^11.8.1",
+    "csv-parse": "^5.6.0"
+  }
+}

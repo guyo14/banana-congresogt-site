@@ -1,0 +1,321 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import db from '../../lib/db.js';
+
+export async function getStaticPaths() {
+  const congressmen = db.prepare('SELECT id FROM congressmen').all();
+  return congressmen.map(c => ({
+    params: { id: c.id.toString() }
+  }));
+}
+
+const { id } = Astro.params;
+
+// Fetch Congressman details
+const congressman = db.prepare(`
+  SELECT c.*, p.name as party_name, d.name as district_name 
+  FROM congressmen c 
+  LEFT JOIN parties p ON c.party_id = p.id 
+  LEFT JOIN districts d ON c.district_id = d.id
+  WHERE c.id = ?
+`).get(id);
+
+// Fetch Overall Attendance
+const attendanceStats = db.prepare(`
+  SELECT 
+    COUNT(*) as total,
+    SUM(CASE WHEN status = 'presente' THEN 1 ELSE 0 END) as present,
+    SUM(CASE WHEN status = 'ausente' THEN 1 ELSE 0 END) as absent,
+    SUM(CASE WHEN status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
+  FROM attendance
+  WHERE congressman_id = ?
+`).get(id);
+
+// Fetch Last 5 Sessions Attendance
+const recentAttendance = db.prepare(`
+  SELECT a.status, s.start_date, s.session_number
+  FROM attendance a
+  JOIN sessions s ON a.session_id = s.id
+  WHERE a.congressman_id = ?
+  ORDER BY s.start_date DESC
+  LIMIT 5
+`).all(id);
+
+// Fetch Overall Voting Tendencies
+const voteStats = db.prepare(`
+  SELECT 
+    COUNT(*) as total,
+    SUM(CASE WHEN vote_type = 'a_favor' THEN 1 ELSE 0 END) as favor,
+    SUM(CASE WHEN vote_type = 'en_contra' THEN 1 ELSE 0 END) as contra,
+    SUM(CASE WHEN vote_type = 'ausente' THEN 1 ELSE 0 END) as absent
+  FROM votes
+  WHERE congressman_id = ?
+`).get(id);
+
+// Fetch Last 5 Votes
+const recentVotes = db.prepare(`
+  SELECT v.vote_type, vot.subject, vot.start_date, vot.id as votation_id
+  FROM votes v
+  JOIN votations vot ON v.votation_id = vot.id
+  WHERE v.congressman_id = ?
+  ORDER BY vot.start_date DESC
+  LIMIT 5
+`).all(id);
+
+// Calculate percentages for CSS Charts
+const attPct = (attendanceStats.present / Math.max(1, attendanceStats.total)) * 100;
+const excPct = (attendanceStats.excused / Math.max(1, attendanceStats.total)) * 100;
+
+const vFavorPct = (voteStats.favor / Math.max(1, voteStats.total)) * 100;
+const vContraPct = (voteStats.contra / Math.max(1, voteStats.total)) * 100;
+
+const formatPct = (num) => isNaN(num) ? 0 : num.toFixed(1);
+
+// Utility for vote colors
+const getVoteColor = (type) => {
+  if (type === 'a_favor') return 'var(--color-favor)';
+  if (type === 'en_contra') return 'var(--color-contra)';
+  return 'var(--color-ausente)';
+};
+---
+
+<Layout title={`${congressman.first_name} ${congressman.last_name}`}>
+  <div class="profile-header glass-panel">
+    <div class="profile-photo">
+      {congressman.photo_url ? (
+        <img src={congressman.photo_url} alt={congressman.first_name} loading="eager" onerror="this.src='/placeholder.svg'; this.onerror=null;" />
+      ) : (
+        <div class="placeholder-img">👤</div>
+      )}
+    </div>
+    <div class="profile-info">
+      <h1>{congressman.first_name} <br/> {congressman.last_name}</h1>
+      <div class="tags">
+        <a href={`/party/${congressman.party_id}`} class="badge badge-party">{congressman.party_name}</a>
+        <a href={`/district/${congressman.district_id}`} class="badge badge-district">{congressman.district_name}</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-container">
+    <div class="stats-card glass-panel">
+      <h2>Asistencia General</h2>
+      <div class="chart-wrapper">
+        <div class="pie-chart" style={`background: conic-gradient(
+          var(--color-favor) 0% ${attPct}%, 
+          var(--accent-color) ${attPct}% ${attPct + excPct}%, 
+          var(--color-contra) ${attPct + excPct}% 100%
+        )`}></div>
+        <div class="chart-legend">
+          <div class="legend-item"><span style="background: var(--color-favor)"></span> Presente ({formatPct(attPct)}%)</div>
+          <div class="legend-item"><span style="background: var(--accent-color)"></span> Excusa ({formatPct(excPct)}%)</div>
+          <div class="legend-item"><span style="background: var(--color-contra)"></span> Ausente ({formatPct(100 - attPct - excPct)}%)</div>
+        </div>
+      </div>
+      <div class="recent-list">
+        <h3>Últimas 5 Sesiones</h3>
+        <div class="session-badges">
+          {recentAttendance.map(a => (
+            <div class={`badge-status status-${a.status}`} title={`${new Date(a.start_date).toLocaleDateString()} - Sesión ${a.session_number}`}>
+              {a.status === 'presente' ? '✔' : a.status === 'ausente' ? '✘' : 'E'}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-card glass-panel">
+      <h2>Tendencia de Votación</h2>
+      <div class="chart-wrapper">
+        <div class="pie-chart" style={`background: conic-gradient(
+          var(--color-favor) 0% ${vFavorPct}%, 
+          var(--color-contra) ${vFavorPct}% ${vFavorPct + vContraPct}%, 
+          var(--color-ausente) ${vFavorPct + vContraPct}% 100%
+        )`}></div>
+        <div class="chart-legend">
+          <div class="legend-item"><span style="background: var(--color-favor)"></span> A Favor ({formatPct(vFavorPct)}%)</div>
+          <div class="legend-item"><span style="background: var(--color-contra)"></span> En Contra ({formatPct(vContraPct)}%)</div>
+          <div class="legend-item"><span style="background: var(--color-ausente)"></span> Ausente ({formatPct(100 - vFavorPct - vContraPct)}%)</div>
+        </div>
+      </div>
+      <div class="recent-list">
+        <h3>Últimos Votos</h3>
+        <ul class="vote-list">
+          {recentVotes.map(v => (
+            <li>
+              <span class="vote-dot" style={`background: ${getVoteColor(v.vote_type)}`}></span>
+              <a href={`/votation/${v.votation_id}`} class="vote-subject">{v.subject.substring(0, 60)}...</a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .profile-header {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    margin-bottom: 2rem;
+    padding: 2rem;
+  }
+
+  .profile-photo {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 4px solid var(--border-color);
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+  }
+
+  .profile-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .profile-info h1 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    line-height: 1.1;
+  }
+
+  .tags {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .badge {
+    text-decoration: none;
+    font-size: 0.9rem;
+    padding: 0.4em 1em;
+  }
+
+  .badge-party {
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent-color);
+    border-color: rgba(88, 166, 255, 0.3);
+  }
+
+  .badge-district {
+    background: rgba(139, 148, 158, 0.15);
+    border-color: rgba(139, 148, 158, 0.3);
+  }
+
+  .stats-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 2rem;
+  }
+
+  .stats-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .chart-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .pie-chart {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 6px var(--bg-secondary);
+  }
+
+  .chart-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .legend-item {
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .legend-item span {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  .recent-list {
+    margin-top: 1rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .recent-list h3 {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+  }
+
+  .session-badges {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .badge-status {
+    width: 35px;
+    height: 35px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    cursor: help;
+  }
+
+  .status-presente { background: rgba(46, 160, 67, 0.2); color: var(--color-favor); border: 1px solid var(--color-favor); }
+  .status-ausente { background: rgba(248, 81, 73, 0.2); color: var(--color-contra); border: 1px solid var(--color-contra); }
+  .status-licencia_excusa { background: rgba(88, 166, 255, 0.2); color: var(--accent-color); border: 1px solid var(--accent-color); }
+
+  .vote-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .vote-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .vote-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .vote-subject {
+    color: var(--text-main);
+    line-height: 1.3;
+  }
+  .vote-subject:hover {
+    color: var(--accent-color);
+  }
+
+  @media (max-width: 600px) {
+    .profile-header {
+      flex-direction: column;
+      text-align: center;
+    }
+  }
+</style>
