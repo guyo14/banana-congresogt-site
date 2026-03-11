@@ -1,0 +1,4 @@
+--- Crawl Report Started at 2026-03-10 23:32:23 ---
+[2026-03-10 23:35:54] [ERROR] Unmatched congressman vote for Name: 'Ningún dato disponible en esta tabla =(' in votation 50580
+[2026-03-10 23:36:29] [ERROR] Unmatched congressman vote for Name: 'Ningún dato disponible en esta tabla =(' in votation 50585
+[2026-03-10 23:38:47] [ERROR] Unmatched congressman vote for Name: 'Ningún dato disponible en esta tabla =(' in votation 50603

@@ -1,6 +1,8 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import db from '../../lib/db.js';
+import DonutChart from '../../components/DonutChart.astro';
+import StackedBarChart from '../../components/StackedBarChart.astro';
 
 export async function getStaticPaths() {
   const votations = db.prepare('SELECT id FROM votations').all();
@@ -98,35 +100,24 @@ const getVoteColor = (type) => {
     <div class="stats-card glass-panel">
       <h2>Resultado General</h2>
       <div class="chart-wrapper">
-        <div class="pie-chart" style={`background: conic-gradient(
-          var(--color-favor) 0% ${favorPct}%, 
-          var(--color-contra) ${favorPct}% ${favorPct + contraPct}%, 
-          var(--color-ausente) ${favorPct + contraPct}% 100%
-        )`}></div>
+        <DonutChart 
+          id={`outcome-${votation.id}`} 
+          series={[totalFavor, totalContra, totalAbsent]} 
+          labels={['A Favor', 'En Contra', 'Ausente']}
+          colors={['#2ea043', '#f85149', '#8b949e']}
+        />
         <div class="chart-legend">
-          <div class="legend-item"><span style="background: var(--color-favor)"></span> A Favor: <strong>{totalFavor}</strong> ({formatPct(favorPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--color-contra)"></span> En Contra: <strong>{totalContra}</strong> ({formatPct(contraPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--color-ausente)"></span> Ausente: <strong>{totalAbsent}</strong> ({formatPct(100 - favorPct - contraPct)}%)</div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> A Favor</div><strong>{formatPct(favorPct)}% ({totalFavor})</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> En Contra</div><strong>{formatPct(contraPct)}% ({totalContra})</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-ausente)"></span> Ausente</div><strong>{formatPct(100 - favorPct - contraPct)}% ({totalAbsent})</strong></div>
         </div>
       </div>
     </div>
 
     <div class="stats-card glass-panel party-breakdown">
       <h2>Votos por Bancada</h2>
-      <div class="breakdown-list">
-        {partyList.map(p => (
-          <div class="party-row">
-            <div class="party-name-col">
-              {p.id ? <a href={`/party/${p.id}`}>{p.name}</a> : <span>{p.name}</span>}
-              <span class="text-muted text-small">({p.total})</span>
-            </div>
-            <div class="party-bar-container">
-              {p.favor > 0 && <div class="party-bar pb-favor" style={`width: ${(p.favor/p.total)*100}%`} title={`A Favor: ${p.favor}`}></div>}
-              {p.contra > 0 && <div class="party-bar pb-contra" style={`width: ${(p.contra/p.total)*100}%`} title={`En Contra: ${p.contra}`}></div>}
-              {p.absent > 0 && <div class="party-bar pb-absent" style={`width: ${(p.absent/p.total)*100}%`} title={`Ausente: ${p.absent}`}></div>}
-            </div>
-          </div>
-        ))}
+      <div class="chart-wrapper" style="width: 100%;">
+        <StackedBarChart id={`party-votation-${votation.id}`} dataList={partyList} />
       </div>
     </div>
   </div>
@@ -135,15 +126,21 @@ const getVoteColor = (type) => {
     <div class="section-top">
       <h2>Votos Individuales ({totalVotes})</h2>
       <div class="filter-group">
+        <div class="vote-filters">
+          <button class="vote-filter active" data-filter="all">Todos</button>
+          <button class="vote-filter" data-filter="a_favor">A Favor</button>
+          <button class="vote-filter" data-filter="en_contra">En Contra</button>
+          <button class="vote-filter" data-filter="ausente">Ausente</button>
+        </div>
         <input type="text" id="filterInput" placeholder="Buscar diputado..." />
       </div>
     </div>
 
     <div class="vote-grid" id="voteGrid">
       {votesList.map(v => (
-        <a href={`/congressman/${v.congressman_id}`} class="ind-vote-card" data-name={`${v.first_name} ${v.last_name}`.toLowerCase()}>
+        <a href={`/congressman/${v.congressman_id}`} class="ind-vote-card" data-name={`${v.first_name} ${v.last_name}`.toLowerCase()} data-vote={v.vote_type}>
           <div class="ind-photo">
-            {v.photo_url ? <img src={v.photo_url.replace('.jpg', '_thumb.jpg')} alt={v.first_name} loading="lazy" onerror="this.src='/placeholder.svg'; this.onerror=null;"/> : <div class="placeholder-img">👤</div>}
+            {v.photo_url ? <img src={`/congressmen/face/${v.congressman_id}.jpg`} alt={v.first_name} loading="lazy" onerror="this.src='/placeholder.svg'; this.onerror=null;"/> : <div class="placeholder-img">👤</div>}
           </div>
           <div class="ind-info">
             <h4>{v.first_name} {v.last_name}</h4>
@@ -157,18 +154,40 @@ const getVoteColor = (type) => {
 </Layout>
 
 <script>
+  let activeTextFilter = '';
+  let activeVoteFilter = 'all';
+
   const filterInput = document.getElementById('filterInput');
+  const filterButtons = document.querySelectorAll('.vote-filter');
   const cards = document.querySelectorAll('.ind-vote-card');
+
+  function applyFilters() {
+    cards.forEach(card => {
+      const matchesText = card.dataset.name.includes(activeTextFilter);
+      const matchesVote = activeVoteFilter === 'all' || card.dataset.vote === activeVoteFilter;
+      
+      if (matchesText && matchesVote) {
+        card.style.display = 'flex';
+      } else {
+        card.style.display = 'none';
+      }
+    });
+  }
 
   if (filterInput) {
     filterInput.addEventListener('input', () => {
-      const val = filterInput.value.toLowerCase();
-      cards.forEach(card => {
-        if (card.dataset.name.includes(val)) {
-          card.style.display = 'flex';
-        } else {
-          card.style.display = 'none';
-        }
+      activeTextFilter = filterInput.value.toLowerCase();
+      applyFilters();
+    });
+  }
+
+  if (filterButtons.length > 0) {
+    filterButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        filterButtons.forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        activeVoteFilter = e.target.dataset.filter;
+        applyFilters();
       });
     });
   }
@@ -191,13 +210,27 @@ const getVoteColor = (type) => {
   .mb-3 { margin-bottom: 3rem; }
   .text-small { font-size: 0.8rem; }
 
-  .stats-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 2rem; }
+  .stats-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }
   .stats-card { display: flex; flex-direction: column; gap: 1.5rem; }
-  .chart-wrapper { display: flex; align-items: center; gap: 1.5rem; }
+  .chart-wrapper { display: flex; align-items: center; gap: 2rem; }
   
-  /* Pie Chart */
-  .pie-chart { width: 140px; height: 140px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 6px var(--bg-secondary); }
-  .chart-legend { display: flex; flex-direction: column; gap: 0.75rem; }
+  .chart-legend { display: flex; flex-direction: column; gap: 0.75rem; flex-grow: 1; }
+  .legend-item {
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+  .legend-label-group { display: flex; align-items: center; gap: 0.75rem; }
+  .legend-item span { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+  /* Breakdown List styling */
+  .breakdown-list { display: flex; flex-direction: column; gap: 0.75rem; max-height: 250px; overflow-y: auto; padding-right: 0.5rem; }
   .legend-item { font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-main); }
   .legend-item span { width: 14px; height: 14px; border-radius: 3px; display: inline-block; flex-shrink: 0;}
 
@@ -219,24 +252,41 @@ const getVoteColor = (type) => {
 
   /* Individuals */
   .individual-section { padding: 2rem; }
-  .section-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
-  .section-top h2 { margin: 0; }
+  .section-top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  /* Filter UI */
+  .filter-group { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
   
-  .filter-group input {
-    padding: 0.5rem 1rem;
+  .vote-filters {
+    display: flex;
+    gap: 0.5rem;
+    background: var(--bg-tertiary);
+    padding: 0.25rem;
     border-radius: 8px;
     border: 1px solid var(--border-color);
-    background: var(--bg-secondary);
-    color: var(--text-main);
-    outline: none;
   }
-  .filter-group input:focus { border-color: var(--accent-color); }
+  
+  .vote-filter {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 0.5em 1em;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .vote-filter:hover { color: var(--text-color); }
+  
+  .vote-filter.active { background: var(--border-color); color: var(--text-color); font-weight: bold; }
+  
+  #filterInput { padding: 0.7rem 1rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-color); min-width: 0; width: 100%; max-width: 300px; }
+  #filterInput:focus { outline: none; border-color: var(--accent-color); }
 
   .vote-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 1rem;
-  }
 
   .ind-vote-card {
     display: flex;
@@ -269,5 +319,18 @@ const getVoteColor = (type) => {
   .ind-vote-indicator {
     width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
     box-shadow: 0 0 0 2px var(--bg-secondary);
+  }
+
+  @media (max-width: 768px) {
+    .stats-container { grid-template-columns: 1fr; }
+    .chart-wrapper { flex-direction: column; gap: 1rem; }
+    .individual-section { padding: 1rem; }
+    .section-top { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+    .filter-group { flex-direction: column; width: 100%; }
+    .vote-filters { width: 100%; justify-content: center; }
+    #filterInput { max-width: none; }
+    .vote-grid { grid-template-columns: 1fr; }
+    .page-header h1 { font-size: 1.3rem !important; }
+    .outcome-badge { margin-left: 0; }
   }
 </style>

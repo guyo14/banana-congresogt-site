@@ -91,4 +91,33 @@ const stats = {
     font-size: 0.95rem;
     font-weight: 500;
   }
+
+  @media (max-width: 768px) {
+    .hero-section {
+      padding: 2rem 0 1.5rem;
+    }
+    .hero-title {
+      font-size: 2rem;
+    }
+    .hero-subtitle {
+      font-size: 1rem;
+    }
+    .stats-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .stat-card {
+      padding: 1.5rem 1rem;
+    }
+    .stat-card h3 {
+      font-size: 2rem;
+    }
+  }
+
+  @media (max-width: 400px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>

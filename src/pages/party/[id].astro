@@ -1,6 +1,7 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import db from '../../lib/db.js';
+import DonutChart from '../../components/DonutChart.astro';
 
 export async function getStaticPaths() {
   const parties = db.prepare('SELECT id FROM parties').all();
@@ -78,15 +79,16 @@ const formatPct = (num) => num.toFixed(1);
     <div class="stats-card glass-panel">
       <h2>Asistencia Promedio</h2>
       <div class="chart-wrapper">
-        <div class="pie-chart" style={`background: conic-gradient(
-          var(--color-favor) 0% ${attPct}%, 
-          var(--accent-color) ${attPct}% ${attPct + excPct}%, 
-          var(--color-contra) ${attPct + excPct}% 100%
-        )`}></div>
+        <DonutChart 
+          id={`attendance-party-${party.id}`}
+          series={[attPresent, attExcused, attAbsent]} 
+          labels={['Presente', 'Excusa', 'Ausente']}
+          colors={['#10b981', '#00B2E3', '#ef4444']}
+        />
         <div class="chart-legend">
-          <div class="legend-item"><span style="background: var(--color-favor)"></span> Presente ({formatPct(attPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--accent-color)"></span> Excusa ({formatPct(excPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--color-contra)"></span> Ausente ({formatPct(100 - attPct - excPct)}%)</div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> Presente</div><strong>{formatPct(attPct)}% ({attPresent})</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--accent-color)"></span> Excusa</div><strong>{formatPct(excPct)}% ({attExcused})</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> Ausente</div><strong>{formatPct(100 - attPct - excPct)}% ({attAbsent})</strong></div>
         </div>
       </div>
     </div>
@@ -94,15 +96,16 @@ const formatPct = (num) => num.toFixed(1);
     <div class="stats-card glass-panel">
       <h2>Tendencia de Votación Global</h2>
       <div class="chart-wrapper">
-        <div class="pie-chart" style={`background: conic-gradient(
-          var(--color-favor) 0% ${vFavorPct}%, 
-          var(--color-contra) ${vFavorPct}% ${vFavorPct + vContraPct}%, 
-          var(--color-ausente) ${vFavorPct + vContraPct}% 100%
-        )`}></div>
+        <DonutChart 
+          id={`votes-party-${party.id}`}
+          series={[voteFavor, voteContra, voteAbsent]} 
+          labels={['A Favor', 'En Contra', 'Ausente']}
+          colors={['#10b981', '#ef4444', '#94a3b8']}
+        />
         <div class="chart-legend">
-          <div class="legend-item"><span style="background: var(--color-favor)"></span> A Favor ({formatPct(vFavorPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--color-contra)"></span> En Contra ({formatPct(vContraPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--color-ausente)"></span> Ausente ({formatPct(100 - vFavorPct - vContraPct)}%)</div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> A Favor</div><strong>{formatPct(vFavorPct)}% ({voteFavor})</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> En Contra</div><strong>{formatPct(vContraPct)}% ({voteContra})</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-ausente)"></span> Ausente</div><strong>{formatPct(100 - vFavorPct - vContraPct)}% ({voteAbsent})</strong></div>
         </div>
       </div>
     </div>
@@ -115,7 +118,7 @@ const formatPct = (num) => num.toFixed(1);
         <a href={`/congressman/${c.id}`} class="member-card glass-panel">
           <div class="photo">
             {c.photo_url ? (
-              <img src={c.photo_url.replace('.jpg', '_thumb.jpg')} alt={`${c.first_name} ${c.last_name}`} loading="lazy" onerror="this.src='/placeholder.svg'; this.onerror=null;"/>
+              <img src={`/congressmen/face/${c.id}.jpg`} alt={`${c.first_name} ${c.last_name}`} loading="lazy" onerror="this.src='/placeholder.svg'; this.onerror=null;"/>
             ) : (
               <div class="placeholder-img">👤</div>
             )}
@@ -163,7 +166,7 @@ const formatPct = (num) => num.toFixed(1);
 
   .stats-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 2rem;
   }
 
@@ -176,35 +179,34 @@ const formatPct = (num) => num.toFixed(1);
   .chart-wrapper {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
-  }
-
-  .pie-chart {
-    width: 140px;
-    height: 140px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    box-shadow: 0 0 0 6px var(--bg-secondary);
+    gap: 2rem;
   }
 
   .chart-legend {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    flex-grow: 1;
   }
 
   .legend-item {
     font-size: 0.95rem;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    color: var(--text-main);
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
   }
+
+  .legend-label-group { display: flex; align-items: center; gap: 0.75rem; }
 
   .legend-item span {
     width: 14px;
     height: 14px;
-    border-radius: 3px;
+    border-radius: 4px;
     display: inline-block;
   }
 
@@ -252,5 +254,13 @@ const formatPct = (num) => num.toFixed(1);
 
   .member-card:hover {
     border-color: var(--accent-color);
+    transform: translateY(-3px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+
+  @media (max-width: 768px) {
+    .chart-wrapper { flex-direction: column; gap: 1rem; }
+    .stats-container { grid-template-columns: 1fr; }
+    .party-name { font-size: 2rem; }
   }
 </style>

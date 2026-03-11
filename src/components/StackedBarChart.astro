@@ -1,0 +1,138 @@
+---
+const { id, dataList } = Astro.props;
+
+// Process the data lists for ApexCharts rendering
+const series = [
+  { name: 'A Favor', data: dataList.map(p => p.favor) },
+  { name: 'En Contra', data: dataList.map(p => p.contra) },
+  { name: 'Ausente', data: dataList.map(p => p.absent) }
+];
+const categories = dataList.map(p => p.name);
+
+// Exact styling array used in previous charts
+const colors = ['#10b981', '#ef4444', '#94a3b8'];
+
+// Dynamic height calculation so labels aren't crunched on massive data sets
+const chartHeight = Math.max(dataList.length * 35 + 80, 200);
+---
+<div 
+  id={`stacked-chart-${id}`} 
+  class="stacked-bar-container" 
+  data-series={JSON.stringify(series)} 
+  data-categories={JSON.stringify(categories)} 
+  data-colors={JSON.stringify(colors)}
+  data-height={chartHeight}
+></div>
+
+<script>
+  import ApexCharts from 'apexcharts';
+
+  function initBarCharts() {
+    document.querySelectorAll('.stacked-bar-container').forEach(el => {
+      // Prevent double initialization
+      if (el.innerHTML.trim() !== '') return;
+
+      const series = JSON.parse(el.dataset.series || '[]');
+      const categories = JSON.parse(el.dataset.categories || '[]');
+      const colors = JSON.parse(el.dataset.colors || '[]');
+      const height = Number(el.dataset.height) || 300;
+      
+      const options = {
+        series: series,
+        chart: {
+          type: 'bar',
+          height: height,
+          stacked: true,
+          background: 'transparent',
+          toolbar: { show: false },
+          animations: {
+            enabled: true,
+            easing: 'easeinout',
+            speed: 800
+          }
+        },
+        plotOptions: {
+          bar: {
+            horizontal: true,
+            borderRadius: 4,
+            columnWidth: '80%',
+            barHeight: '75%',
+          },
+        },
+        colors: colors,
+        stroke: {
+          show: true,
+          width: 2,
+          colors: ['#ffffff']
+        },
+        xaxis: {
+          categories: categories,
+          labels: {
+            show: true,
+            style: { 
+              colors: '#64748b', 
+              fontFamily: 'Inter',
+              fontSize: '11px' 
+            }
+          },
+          axisBorder: { show: false },
+          axisTicks: { show: false }
+        },
+        yaxis: {
+          labels: {
+            style: { 
+              colors: '#334155', 
+              fontFamily: 'Inter', 
+              fontWeight: 600,
+              fontSize: '12px' 
+            },
+            maxWidth: 160
+          }
+        },
+        tooltip: {
+          theme: 'light',
+          y: {
+            formatter: function (val) {
+              return val + " Votos"
+            }
+          }
+        },
+        fill: {
+          opacity: 1
+        },
+        legend: {
+          show: false 
+        },
+        grid: {
+          show: true,
+          borderColor: '#e2e8f0',
+          xaxis: { lines: { show: true } },
+          yaxis: { lines: { show: false } },
+          padding: { left: -10 }
+        }
+      };
+
+      const chart = new ApexCharts(el, options);
+      chart.render();
+    });
+  }
+
+  // Run on first mounted layout load
+  initBarCharts();
+  
+  // Re-run on View Transitions API triggers
+  document.addEventListener('astro:page-load', initBarCharts);
+</script>
+
+<style>
+  .stacked-bar-container {
+    width: 100%;
+    margin-top: 1rem;
+  }
+  
+  /* Ensure correct global tooltips overrides */
+  :global(.apexcharts-tooltip) {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+    border: 1px solid #e2e8f0 !important;
+  }
+</style>

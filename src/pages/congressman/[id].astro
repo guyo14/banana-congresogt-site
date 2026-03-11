@@ -1,6 +1,7 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import db from '../../lib/db.js';
+import DonutChart from '../../components/DonutChart.astro';
 
 export async function getStaticPaths() {
   const congressmen = db.prepare('SELECT id FROM congressmen').all();
@@ -31,14 +32,13 @@ const attendanceStats = db.prepare(`
   WHERE congressman_id = ?
 `).get(id);
 
-// Fetch Last 5 Sessions Attendance
-const recentAttendance = db.prepare(`
+// Fetch All Sessions Attendance for Calendar
+const allAttendance = db.prepare(`
   SELECT a.status, s.start_date, s.session_number
   FROM attendance a
   JOIN sessions s ON a.session_id = s.id
   WHERE a.congressman_id = ?
-  ORDER BY s.start_date DESC
-  LIMIT 5
+  ORDER BY s.start_date ASC
 `).all(id);
 
 // Fetch Overall Voting Tendencies
@@ -83,7 +83,7 @@ const getVoteColor = (type) => {
   <div class="profile-header glass-panel">
     <div class="profile-photo">
       {congressman.photo_url ? (
-        <img src={congressman.photo_url} alt={congressman.first_name} loading="eager" onerror="this.src='/placeholder.svg'; this.onerror=null;" />
+        <img src={`/congressmen/face/${congressman.id}.jpg`} alt={congressman.first_name} loading="eager" onerror="this.src='/placeholder.svg'; this.onerror=null;" />
       ) : (
         <div class="placeholder-img">👤</div>
       )}
@@ -101,22 +101,23 @@ const getVoteColor = (type) => {
     <div class="stats-card glass-panel">
       <h2>Asistencia General</h2>
       <div class="chart-wrapper">
-        <div class="pie-chart" style={`background: conic-gradient(
-          var(--color-favor) 0% ${attPct}%, 
-          var(--accent-color) ${attPct}% ${attPct + excPct}%, 
-          var(--color-contra) ${attPct + excPct}% 100%
-        )`}></div>
+        <DonutChart 
+          id="attendance-chart" 
+          series={[attendanceStats.present, attendanceStats.excused, attendanceStats.absent]} 
+          labels={['Presente', 'Excusa', 'Ausente']}
+          colors={['#2ea043', '#58a6ff', '#f85149']}
+        />
         <div class="chart-legend">
-          <div class="legend-item"><span style="background: var(--color-favor)"></span> Presente ({formatPct(attPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--accent-color)"></span> Excusa ({formatPct(excPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--color-contra)"></span> Ausente ({formatPct(100 - attPct - excPct)}%)</div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> Presente</div><strong>{formatPct(attPct)}%</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--accent-color)"></span> Excusa</div><strong>{formatPct(excPct)}%</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> Ausente</div><strong>{formatPct(100 - attPct - excPct)}%</strong></div>
         </div>
       </div>
       <div class="recent-list">
-        <h3>Últimas 5 Sesiones</h3>
-        <div class="session-badges">
-          {recentAttendance.map(a => (
-            <div class={`badge-status status-${a.status}`} title={`${new Date(a.start_date).toLocaleDateString()} - Sesión ${a.session_number}`}>
+        <h3>Calendario de Sesiones</h3>
+        <div class="session-calendar">
+          {allAttendance.map(a => (
+            <div class={`badge-status status-${a.status}`} title={`${new Date(a.start_date).toLocaleDateString('es-GT')} - Sesión ${a.session_number}`}>
               {a.status === 'presente' ? '✔' : a.status === 'ausente' ? '✘' : 'E'}
             </div>
           ))}
@@ -127,15 +128,16 @@ const getVoteColor = (type) => {
     <div class="stats-card glass-panel">
       <h2>Tendencia de Votación</h2>
       <div class="chart-wrapper">
-        <div class="pie-chart" style={`background: conic-gradient(
-          var(--color-favor) 0% ${vFavorPct}%, 
-          var(--color-contra) ${vFavorPct}% ${vFavorPct + vContraPct}%, 
-          var(--color-ausente) ${vFavorPct + vContraPct}% 100%
-        )`}></div>
+        <DonutChart 
+          id="vote-chart" 
+          series={[voteStats.favor, voteStats.contra, voteStats.absent]} 
+          labels={['A Favor', 'En Contra', 'Ausente']}
+          colors={['#2ea043', '#f85149', '#8b949e']}
+        />
         <div class="chart-legend">
-          <div class="legend-item"><span style="background: var(--color-favor)"></span> A Favor ({formatPct(vFavorPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--color-contra)"></span> En Contra ({formatPct(vContraPct)}%)</div>
-          <div class="legend-item"><span style="background: var(--color-ausente)"></span> Ausente ({formatPct(100 - vFavorPct - vContraPct)}%)</div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> A Favor</div><strong>{formatPct(vFavorPct)}%</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> En Contra</div><strong>{formatPct(vContraPct)}%</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-ausente)"></span> Ausente</div><strong>{formatPct(100 - vFavorPct - vContraPct)}%</strong></div>
         </div>
       </div>
       <div class="recent-list">
@@ -208,7 +210,7 @@ const getVoteColor = (type) => {
 
   .stats-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 2rem;
   }
 
@@ -221,34 +223,38 @@ const getVoteColor = (type) => {
   .chart-wrapper {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
-  }
-
-  .pie-chart {
-    width: 120px;
-    height: 120px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    box-shadow: 0 0 0 6px var(--bg-secondary);
+    gap: 2rem;
   }
 
   .chart-legend {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.75rem;
+    flex-grow: 1;
   }
 
   .legend-item {
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+  
+  .legend-label-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
   }
 
   .legend-item span {
-    width: 12px;
-    height: 12px;
-    border-radius: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
     display: inline-block;
   }
 
@@ -263,18 +269,26 @@ const getVoteColor = (type) => {
     margin-bottom: 1rem;
   }
 
-  .session-badges {
-    display: flex;
-    gap: 0.5rem;
+  .session-calendar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(24px, 1fr));
+    gap: 0.35rem;
+    max-height: 250px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
   }
 
+  .session-calendar::-webkit-scrollbar { width: 6px; }
+  .session-calendar::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+
   .badge-status {
-    width: 35px;
-    height: 35px;
-    border-radius: 8px;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-size: 0.70rem;
     font-weight: bold;
     cursor: help;
   }
@@ -312,10 +326,35 @@ const getVoteColor = (type) => {
     color: var(--accent-color);
   }
 
-  @media (max-width: 600px) {
+  @media (max-width: 768px) {
     .profile-header {
       flex-direction: column;
       text-align: center;
+      padding: 1.25rem;
+      gap: 1.25rem;
+    }
+    .profile-photo {
+      width: 100px;
+      height: 100px;
+    }
+    .profile-info h1 {
+      font-size: 1.5rem;
+    }
+    .tags {
+      justify-content: center;
+    }
+    .stats-container {
+      grid-template-columns: 1fr;
+    }
+    .chart-wrapper {
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .session-calendar {
+      grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
+    }
+    .vote-subject {
+      font-size: 0.8rem;
     }
   }
 </style>
