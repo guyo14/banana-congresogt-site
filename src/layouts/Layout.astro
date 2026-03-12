@@ -23,10 +23,19 @@ const { title, description = "Analiza el comportamiento y las votaciones de los 
 <body>
 	<nav class="navbar">
 		<div class="nav-container">
-			<a href="/" class="nav-logo">
-				🇬🇹 Guate<span>No Olvida</span>
-			</a>
-			<div class="nav-links">
+			<div class="nav-header">
+				<a href="/" class="nav-logo">
+					🇬🇹 Guate<span>No Olvida</span>
+				</a>
+				<button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Abrir menú">
+					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="3" y1="12" x2="21" y2="12"></line>
+						<line x1="3" y1="6" x2="21" y2="6"></line>
+						<line x1="3" y1="18" x2="21" y2="18"></line>
+					</svg>
+				</button>
+			</div>
+			<div class="nav-links" id="navLinks">
 				<a href="/congressmen">Diputados</a>
 				<a href="/parties">Bancadas</a>
 				<a href="/districts">Distritos</a>
@@ -39,5 +48,15 @@ const { title, description = "Analiza el comportamiento y las votaciones de los 
 	<main class="container">
 		<slot />
 	</main>
+
+	<script>
+		const btn = document.getElementById('mobileMenuBtn');
+		const links = document.getElementById('navLinks');
+		if (btn && links) {
+			btn.addEventListener('click', () => {
+				links.classList.toggle('active');
+			});
+		}
+	</script>
 </body>
 </html>

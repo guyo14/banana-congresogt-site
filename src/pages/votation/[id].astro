@@ -276,23 +276,25 @@ const getVoteColor = (type) => {
     transition: all 0.2s;
   }
   
-  .vote-filter:hover { color: var(--text-color); }
+  .vote-filter:hover { color: var(--text-main); }
   
-  .vote-filter.active { background: var(--border-color); color: var(--text-color); font-weight: bold; }
+  .vote-filter.active { background: var(--border-color); color: var(--text-main); font-weight: bold; }
   
-  #filterInput { padding: 0.7rem 1rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-color); min-width: 0; width: 100%; max-width: 300px; }
+  #filterInput { padding: 0.7rem 1rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-main); font-family: inherit; font-size: 0.95rem; min-width: 0; width: 100%; max-width: 300px; }
   #filterInput:focus { outline: none; border-color: var(--accent-color); }
 
   .vote-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 1rem;
+  }
 
   .ind-vote-card {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
     padding: 0.75rem;
+    min-width: 0;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -312,9 +314,9 @@ const getVoteColor = (type) => {
   .placeholder-img { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
 
   .ind-info { flex-grow: 1; min-width: 0; }
-  .ind-info h4 { margin: 0 0 0.2rem 0; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-light); }
+  .ind-info h4 { margin: 0 0 0.2rem 0; font-size: 0.9rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--text-light); line-height: 1.3; }
   
-  .badge-party { color: var(--text-muted); }
+  .badge-party { color: var(--text-muted); font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
 
   .ind-vote-indicator {
     width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
@@ -323,11 +325,13 @@ const getVoteColor = (type) => {
 
   @media (max-width: 768px) {
     .stats-container { grid-template-columns: 1fr; }
-    .chart-wrapper { flex-direction: column; gap: 1rem; }
+    .chart-wrapper { flex-direction: column; align-items: center; gap: 1.5rem; }
+    .chart-wrapper > :first-child { max-width: 220px; width: 100%; }
+    .chart-legend { width: 100%; }
     .individual-section { padding: 1rem; }
     .section-top { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
     .filter-group { flex-direction: column; width: 100%; }
-    .vote-filters { width: 100%; justify-content: center; }
+    .vote-filters { width: 100%; justify-content: center; flex-wrap: wrap; }
     #filterInput { max-width: none; }
     .vote-grid { grid-template-columns: 1fr; }
     .page-header h1 { font-size: 1.3rem !important; }
