@@ -26,10 +26,12 @@ const votesList = db.prepare(`
   SELECT 
     v.vote_type, 
     c.id as congressman_id, c.first_name, c.last_name, c.photo_url,
-    p.name as party_name, p.id as party_id
+    p.name as party_name, p.id as party_id,
+    d.name as district_name, d.id as district_id
   FROM votes v
   JOIN congressmen c ON v.congressman_id = c.id
   LEFT JOIN parties p ON c.party_id = p.id
+  LEFT JOIN districts d ON c.district_id = d.id
   WHERE v.votation_id = ?
   ORDER BY p.name ASC, c.first_name ASC
 `).all(id);
@@ -67,6 +69,23 @@ const partyList = Object.entries(partyBreakdown)
   .map(([name, data]) => ({ name, ...data }))
   .sort((a, b) => b.total - a.total);
 
+// Group by district
+const districtBreakdown = {};
+votesList.forEach(v => {
+  const dname = v.district_name || 'Sin Distrito';
+  if (!districtBreakdown[dname]) {
+    districtBreakdown[dname] = { favor: 0, contra: 0, absent: 0, total: 0, id: v.district_id };
+  }
+  districtBreakdown[dname].total++;
+  if (v.vote_type === 'a_favor') districtBreakdown[dname].favor++;
+  else if (v.vote_type === 'en_contra') districtBreakdown[dname].contra++;
+  else districtBreakdown[dname].absent++;
+});
+
+const districtList = Object.entries(districtBreakdown)
+  .map(([name, data]) => ({ name, ...data }))
+  .sort((a, b) => b.total - a.total);
+
 // Outcome logic
 let outcomeLabel = 'RECHAZADO';
 let outcomeColor = 'var(--color-contra)';
@@ -96,8 +115,8 @@ const getVoteColor = (type) => {
     <h1>{votation.subject}</h1>
   </div>
 
-  <div class="stats-container mb-3">
-    <div class="stats-card glass-panel">
+  <div class="top-row mb-3">
+    <div class="stats-card glass-panel outcome-card">
       <h2>Resultado General</h2>
       <div class="chart-wrapper">
         <DonutChart 
@@ -114,46 +133,70 @@ const getVoteColor = (type) => {
       </div>
     </div>
 
-    <div class="stats-card glass-panel party-breakdown">
-      <h2>Votos por Bancada</h2>
-      <div class="chart-wrapper" style="width: 100%;">
-        <StackedBarChart id={`party-votation-${votation.id}`} dataList={partyList} />
-      </div>
-    </div>
-  </div>
-
-  <div class="individual-section glass-panel">
-    <div class="section-top">
-      <h2>Votos Individuales ({totalVotes})</h2>
-      <div class="filter-group">
-        <div class="vote-filters">
-          <button class="vote-filter active" data-filter="all">Todos</button>
-          <button class="vote-filter" data-filter="a_favor">A Favor</button>
-          <button class="vote-filter" data-filter="en_contra">En Contra</button>
-          <button class="vote-filter" data-filter="ausente">Ausente</button>
+    <div class="individual-section glass-panel">
+      <div class="section-top">
+        <h2>Votos Individuales ({totalVotes})</h2>
+        <div class="filter-group">
+          <div class="vote-filters">
+            <button class="vote-filter active" data-filter="all">Todos</button>
+            <button class="vote-filter" data-filter="a_favor">A Favor</button>
+            <button class="vote-filter" data-filter="en_contra">En Contra</button>
+            <button class="vote-filter" data-filter="ausente">Ausente</button>
+          </div>
+          <input type="text" id="filterInput" placeholder="Buscar diputado..." />
         </div>
-        <input type="text" id="filterInput" placeholder="Buscar diputado..." />
+      </div>
+
+      <div class="vote-grid" id="voteGrid">
+        {votesList.map(v => (
+          <a href={`/congressman/${v.congressman_id}`} class="ind-vote-card" data-name={`${v.first_name} ${v.last_name}`.toLowerCase()} data-vote={v.vote_type}>
+            <div class="ind-photo">
+              {v.photo_url ? <img src={`/congressmen/face/${v.congressman_id}.jpg`} alt={v.first_name} loading="lazy" onerror="this.src='/placeholder.svg'; this.onerror=null;"/> : <div class="placeholder-img">👤</div>}
+            </div>
+            <div class="ind-info">
+              <h4>{v.first_name} {v.last_name}</h4>
+              <span class="badge-party text-small">{v.party_name}</span>
+            </div>
+            <div class="ind-vote-indicator" style={`background: ${getVoteColor(v.vote_type)}`} title={v.vote_type.replace('_', ' ')}></div>
+          </a>
+        ))}
       </div>
     </div>
+  </div>
 
-    <div class="vote-grid" id="voteGrid">
-      {votesList.map(v => (
-        <a href={`/congressman/${v.congressman_id}`} class="ind-vote-card" data-name={`${v.first_name} ${v.last_name}`.toLowerCase()} data-vote={v.vote_type}>
-          <div class="ind-photo">
-            {v.photo_url ? <img src={`/congressmen/face/${v.congressman_id}.jpg`} alt={v.first_name} loading="lazy" onerror="this.src='/placeholder.svg'; this.onerror=null;"/> : <div class="placeholder-img">👤</div>}
-          </div>
-          <div class="ind-info">
-            <h4>{v.first_name} {v.last_name}</h4>
-            <span class="badge-party text-small">{v.party_name}</span>
-          </div>
-          <div class="ind-vote-indicator" style={`background: ${getVoteColor(v.vote_type)}`} title={v.vote_type.replace('_', ' ')}></div>
-        </a>
-      ))}
+  <div class="stats-card glass-panel party-breakdown">
+    <div class="breakdown-header">
+      <h2>Votos por Bancada</h2>
+      <div class="breakdown-tabs">
+        <button class="breakdown-tab active" data-tab="party" data-chart-id={`party-votation-${votation.id}`}>Bancada</button>
+        <button class="breakdown-tab" data-tab="district" data-chart-id={`district-votation-${votation.id}`}>Distrito</button>
+      </div>
+    </div>
+    <div class="chart-panel" id="panel-party">
+      <StackedBarChart id={`party-votation-${votation.id}`} dataList={partyList} />
+    </div>
+    <div class="chart-panel hidden" id="panel-district">
+      <StackedBarChart id={`district-votation-${votation.id}`} dataList={districtList} />
     </div>
   </div>
+
 </Layout>
 
 <script>
+  // --- Breakdown tabs (Bancada / Distrito) ---
+  const breakdownTabs = document.querySelectorAll('.breakdown-tab');
+  breakdownTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      breakdownTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const target = tab.dataset.tab;
+      document.querySelectorAll('.chart-panel').forEach(panel => {
+        panel.classList.toggle('hidden', !panel.id.endsWith(target));
+      });
+    });
+  });
+
+  // --- Individual votes filter ---
   let activeTextFilter = '';
   let activeVoteFilter = 'all';
 
@@ -210,7 +253,30 @@ const getVoteColor = (type) => {
   .mb-3 { margin-bottom: 3rem; }
   .text-small { font-size: 0.8rem; }
 
-  .stats-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }
+  /* Top row: Resultado General + Votos Individuales side by side */
+  .top-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+  }
+
+  .outcome-card { flex-shrink: 0; }
+
+  /* Make the individual section fill the remaining height in the top row */
+  .top-row .individual-section {
+    max-height: 520px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .top-row .vote-grid {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+
   .stats-card { display: flex; flex-direction: column; gap: 1.5rem; }
   .chart-wrapper { display: flex; align-items: center; gap: 2rem; }
   
@@ -234,21 +300,42 @@ const getVoteColor = (type) => {
   .legend-item { font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-main); }
   .legend-item span { width: 14px; height: 14px; border-radius: 3px; display: inline-block; flex-shrink: 0;}
 
-  /* Party Breakdown */
+  /* Party/District Breakdown */
   .party-breakdown { overflow: hidden; }
-  .breakdown-list { display: flex; flex-direction: column; gap: 0.5rem; overflow-y: auto; max-height: 300px; padding-right: 0.5rem; }
-  .breakdown-list::-webkit-scrollbar { width: 6px; }
-  .breakdown-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-  
-  .party-row { display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
-  .party-name-col { width: 120px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .party-name-col a { color: var(--text-light); }
-  .party-name-col a:hover { color: var(--accent-color); text-decoration: underline; }
-  
-  .party-bar-container { flex-grow: 1; height: 10px; display: flex; border-radius: 5px; overflow: hidden; background: var(--bg-tertiary); }
-  .pb-favor { background: var(--color-favor); }
-  .pb-contra { background: var(--color-contra); }
-  .pb-absent { background: var(--color-ausente); }
+
+  .breakdown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .breakdown-tabs {
+    display: flex;
+    gap: 0.25rem;
+    background: var(--bg-tertiary);
+    padding: 0.25rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+
+  .breakdown-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 0.4em 1em;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .breakdown-tab:hover { color: var(--text-main); }
+  .breakdown-tab.active { background: var(--border-color); color: var(--text-main); font-weight: bold; }
+
+  .chart-panel { width: 100%; }
+  .chart-panel.hidden { display: none; }
 
   /* Individuals */
   .individual-section { padding: 2rem; }
@@ -324,7 +411,9 @@ const getVoteColor = (type) => {
   }
 
   @media (max-width: 768px) {
-    .stats-container { grid-template-columns: 1fr; }
+    .top-row { grid-template-columns: 1fr; }
+    .top-row .individual-section { max-height: 420px; overflow: hidden; display: flex; flex-direction: column; }
+    .top-row .vote-grid { overflow-y: auto; flex: 1; min-height: 0; }
     .chart-wrapper { flex-direction: column; align-items: center; gap: 1.5rem; }
     .chart-wrapper > :first-child { max-width: 220px; width: 100%; }
     .chart-legend { width: 100%; }
