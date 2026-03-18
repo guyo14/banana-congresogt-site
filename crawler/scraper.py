@@ -133,57 +133,57 @@ async def fetch_sessions(session_start):
             await browser.close()
             return []
 
-async def fetch_votations_for_session(session_id):
-    """Fetches the votations within a specific session."""
+async def fetch_voting_for_session(session_id):
+    """Fetches the voting records within a specific session."""
     async with async_playwright() as p:
         browser, context = await get_browser_context(p)
         page = await context.new_page()
-        
+
         try:
             await page.goto(f"{BASE_URL}/eventos_votaciones/{session_id}", wait_until="domcontentloaded", timeout=15000)
             await page.wait_for_selector("table#congreso_asistencias tbody tr", timeout=10000)
             html = await page.content()
             soup = bs4.BeautifulSoup(html, "html.parser")
-            
-            votations = []
+
+            voting_records = []
             tbody = soup.select_one("table#congreso_asistencias tbody")
-            Log.debug(f"fetch_votations: tbody found={bool(tbody)}")
+            Log.debug(f"fetch_voting: tbody found={bool(tbody)}")
             if not tbody: return []
-            
+
             rows = tbody.find_all("tr")
-            Log.debug(f"fetch_votations: found {len(rows)} rows")
+            Log.debug(f"fetch_voting: found {len(rows)} rows")
             for row in rows:
                 cols = row.find_all("td")
                 if len(cols) >= 5:
                     subject = cols[0].text.strip()
-                    
-                    votation_timestamp = None
+
+                    voting_timestamp = None
                     time_str = cols[2].text.strip()
                     if time_str == "×":
                         continue # Responsive datatable artifact
                     try:
-                        votation_timestamp = datetime.strptime(time_str, "%d/%m/%Y %H:%M:%S")
+                        voting_timestamp = datetime.strptime(time_str, "%d/%m/%Y %H:%M:%S")
                     except Exception as e:
-                        Log.error(f"Failed parsing votation timestamp '{time_str}' for session {session_id}: {e}")
-                    
+                        Log.error(f"Failed parsing voting timestamp '{time_str}' for session {session_id}: {e}")
+
                     link = cols[4].find("a")
-                    votation_id = None
+                    voting_id = None
                     if link and "href" in link.attrs:
                         match = re.search(r'/detalle_de_votacion/(\d+)/', link['href'])
                         if match:
-                            votation_id = int(match.group(1))
-                            
-                    if votation_id:
-                        votations.append({
-                            "id": votation_id,
+                            voting_id = int(match.group(1))
+
+                    if voting_id:
+                        voting_records.append({
+                            "id": voting_id,
                             "session_id": session_id,
                             "subject": subject,
-                            "start_date": votation_timestamp
+                            "start_date": voting_timestamp
                         })
             await browser.close()
-            return votations
+            return voting_records
         except Exception as e:
-            Log.error(f"Error fetching votations for session {session_id}: {e}")
+            Log.error(f"Error fetching voting for session {session_id}: {e}")
             await browser.close()
             return []
 
@@ -248,33 +248,33 @@ async def fetch_attendance(session_id, session_type_id, congressmen_dict):
             await browser.close()
             return []
 
-async def fetch_votes(votation_id, session_id, congressmen_dict):
-    """Fetches votes for a given votation and maps to congressmen IDs."""
+async def fetch_votes(voting_id, session_id, congressmen_dict):
+    """Fetches votes for a given voting record and maps to congressmen IDs."""
     async with async_playwright() as p:
         browser, context = await get_browser_context(p)
         page = await context.new_page()
-        
+
         try:
-            url = f"{BASE_URL}/detalle_de_votacion/{votation_id}/{session_id}#gsc.tab=0"
-            
+            url = f"{BASE_URL}/detalle_de_votacion/{voting_id}/{session_id}#gsc.tab=0"
+
             # Retry connection 3 times to mitigate ERR_HTTP2_PROTOCOL_ERROR
             for attempt in range(3):
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=20000)
                     await page.wait_for_selector(".nav-tabs", timeout=10000)
-                    break 
+                    break
                 except Exception as ex:
                     if attempt == 2:
                         raise
                     await asyncio.sleep(2)
-                    
+
             await asyncio.sleep(2) # Initial DOM load wait
-            
+
             html = await page.content()
             soup = bs4.BeautifulSoup(html, "html.parser")
-            
+
             votes_records = []
-            
+
             # The tabs are FAVOR, CONTRA, AUSENCIA, LICENCIA/EXCUSA
             tabs = [
                 ("a_favor", "presente", 0, "congreso_a_favor_length"),
@@ -282,12 +282,12 @@ async def fetch_votes(votation_id, session_id, congressmen_dict):
                 ("ausente", "ausente", 2, "congreso_votos_nulos_length"),
                 ("ausente", "licencia_excusa", 3, "congreso_licencia_length")
             ]
-            
+
             # Expand all 4 DataTables in parallel using Playwright
             tasks = []
             for _, _, _, select_name in tabs:
                 tasks.append(page.select_option(f"select[name='{select_name}']", value="-1", force=True))
-            
+
             try:
                 await asyncio.gather(*tasks, return_exceptions=True)
                 await asyncio.sleep(2.5) # Allow heavy headless browser rendering of DataTables globally
@@ -299,7 +299,7 @@ async def fetch_votes(votation_id, session_id, congressmen_dict):
             soup = bs4.BeautifulSoup(html, "html.parser")
             tab_panes = soup.select(".tab-content .tab-pane")
             if len(tab_panes) != 4:
-                Log.error(f"Unexpected number of tabs for votation {votation_id} in session {session_id}")
+                Log.error(f"Unexpected number of tabs for voting {voting_id} in session {session_id}")
                 return []
 
             for vote_type, att_status, tab_index, select_name in tabs:
@@ -314,18 +314,18 @@ async def fetch_votes(votation_id, session_id, congressmen_dict):
                             c_id = match_congressman(raw_name, congressmen_dict)
                             if c_id:
                                 votes_records.append({
-                                    "votation_id": votation_id,
+                                    "voting_id": voting_id,
                                     "congressman_id": c_id,
                                     "vote_type": vote_type,
                                     "attendance_status": att_status
                                 })
                             else:
-                                Log.error(f"Unmatched congressman vote for Name: '{raw_name}' in votation {votation_id}")
-                                    
+                                Log.error(f"Unmatched congressman vote for Name: '{raw_name}' in voting {voting_id}")
+
             await browser.close()
             return votes_records
         except Exception as e:
-            Log.error(f"Error fetching votes for {votation_id}: {e}")
+            Log.error(f"Error fetching votes for {voting_id}: {e}")
             await browser.close()
             return []
 
@@ -350,28 +350,44 @@ async def load_congressmen_data():
     congressmen_dict = {}
     congressmen_tuples = []
     parties = {}
+    blocks = {}
     districts = {}
-    
+
     for c in congressmen_raw:
         c_id = int(c["id_diputado"])
         first_name = remove_unnecessary_spaces(c['nombres'])
         last_name = remove_unnecessary_spaces(c['apellidos'])
         key = f"{last_name} {first_name}".lower()
-        
-        photo = c.get("foto_perfil", "")
-        photo_url = f"{BASE_URL}/assets/uploads/diputados/{photo}" if photo else ""
+
         birth_date = None
         if "fecha_nacimiento" in c and c["fecha_nacimiento"] and c["fecha_nacimiento"] != "0000-00-00":
             birth_date = c["fecha_nacimiento"]
-            
+
+        # Handle party (bancada/bloque in API)
         p_id = None
+        block_id = None
         if c.get("id_bloque"):
-            try: p_id = int(c["id_bloque"])
+            try:
+                p_id = int(c["id_bloque"])
+                block_id = p_id  # In the API, bloque represents both party and block
             except:
                 Log.error(f"Invalid party ID for congressman {c_id}")
                 continue
-            parties[p_id] = parties[p_id] if p_id in parties and parties[p_id] else c["nombre_bloque"]
-            
+
+            party_name = c.get("nombre_bloque", "Unknown")
+            if p_id not in parties:
+                parties[p_id] = {
+                    'name': party_name,
+                    'short_name': party_name,  # API doesn't provide separate short_name
+                    'block_id': block_id
+                }
+
+            if block_id not in blocks:
+                blocks[block_id] = {
+                    'name': party_name,
+                    'short_name': party_name
+                }
+
         d_id = None
         if c.get("id_distrito"):
             try: d_id = int(c["id_distrito"])
@@ -379,17 +395,21 @@ async def load_congressmen_data():
                 Log.error(f"Invalid district ID for congressman {c_id}")
                 continue
             districts[d_id] = districts[d_id] if d_id in districts and districts[d_id] else c["nombre_distrito"]
-        
+
         congressmen_dict[key] = c_id
-        congressmen_tuples.append((c_id, first_name, last_name, key, p_id, d_id, photo_url, birth_date, 'active'))
-    
+        congressmen_tuples.append((c_id, first_name, last_name, key, p_id, d_id, birth_date, 'active', block_id))
+
+    # Insert blocks first (parties reference blocks)
+    if blocks:
+        Log.info(f"Inserting {len(blocks)} blocks.")
+        block_tuples = [(block_id, info['name'], info['short_name']) for block_id, info in blocks.items()]
+        db.insert_blocks(block_tuples)
+
     if parties:
-        for party_id, party_name in parties.items():
-            if not party_name:
-                Log.error(f"Invalid party name for party ID {party_id}")
-                parties[party_id] = "Unknown"
         Log.info(f"Inserting {len(parties)} parties.")
-        db.insert_parties(list(parties.items()))
+        party_tuples = [(party_id, info['name'], info['short_name'], info['block_id']) for party_id, info in parties.items()]
+        db.insert_parties(party_tuples)
+
     if districts:
         for district_id, district_name in districts.items():
             if not district_name:
@@ -397,6 +417,7 @@ async def load_congressmen_data():
                 districts[district_id] = "Unknown"
         Log.info(f"Inserting {len(districts)} districts.")
         db.insert_districts(list(districts.items()))
+
     Log.info(f"Inserting {len(congressmen_tuples)} congressmen.")
     db.insert_congressmen(congressmen_tuples)
     return congressmen_dict
@@ -422,28 +443,28 @@ async def load_attendance_data(congressmen_dict, sessions):
         if att_tuples:
             db.insert_attendance(att_tuples)
 
-async def load_votations_data(congressmen_dict, sessions):
+async def load_voting_data(congressmen_dict, sessions):
     for session in sessions:
         s_id = session["id"]
-        Log.info(f"Fetching Votations for Session {s_id}...")
-        votations = await fetch_votations_for_session(s_id)
-        
-        for v in votations:
+        Log.info(f"Fetching Voting for Session {s_id}...")
+        voting_records = await fetch_voting_for_session(s_id)
+
+        for v in voting_records:
             v_id = v["id"]
-            db.insert_votation((v_id, s_id, v["subject"], v.get("start_date")))
-            
-            Log.info(f"Fetching Votes for Votation {v_id}...")
+            db.insert_voting((v_id, s_id, v["subject"], v.get("start_date")))
+
+            Log.info(f"Fetching Votes for Voting {v_id}...")
             votes = await fetch_votes(v_id, s_id, congressmen_dict)
             if len(votes) != 160:
-                Log.error(f"Only {len(votes)} of 160 congressmen found for votation {v_id} in session {s_id}")
-            vote_tuples = [(vote["votation_id"], vote["congressman_id"], vote["vote_type"], vote["attendance_status"]) for vote in votes]
+                Log.error(f"Only {len(votes)} of 160 congressmen found for voting {v_id} in session {s_id}")
+            vote_tuples = [(vote["voting_id"], vote["congressman_id"], vote["vote_type"], vote["attendance_status"]) for vote in votes]
             if vote_tuples:
                 db.insert_votes(vote_tuples)
 
 async def main():
     Log.init_file()
     parser = argparse.ArgumentParser(description="Congress Data Crawler")
-    parser.add_argument("--action", choices=["all", "load_congressmen", "load_votations", "load_attendance"], default="all", help="Action to perform")
+    parser.add_argument("--action", choices=["all", "load_congressmen", "load_voting", "load_attendance"], default="all", help="Action to perform")
     parser.add_argument("--session-start", type=int, default=41168, help="Start session ID for fetching (default: 41168)")
     parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO", help="Set the logging verbosity level (default: INFO)")
     args = parser.parse_args()
@@ -453,20 +474,20 @@ async def main():
 
     # Initialize DB (run schema.sql IF NOT EXISTS)
     db.init_db()
-    
+
     # We always need the congressmen_dict to match names to IDs.
     if args.action in ["load_congressmen"]:
         congressmen_dict = await load_congressmen_data()
         db.init_aliases()
         return
-    
+
     Log.info("Fetching congressmen in memory from database...")
     congressmen_dict = db.get_congressmen_dict()
     if not congressmen_dict:
         Log.error("No congressmen found in the database. Please run with --action load_congressmen or all first.")
         return
 
-    if args.action in ["all", "load_votations", "load_attendance"]:
+    if args.action in ["all", "load_voting", "load_attendance"]:
         Log.info("Fetching Recent Sessions...")
         sessions = await fetch_sessions(session_start=args.session_start)
         Log.debug(f"Fetched {len(sessions)} sessions. IDs: {[s['id'] for s in sessions]}")
@@ -474,11 +495,11 @@ async def main():
         # In case we still need chronological processing for DB inserts
         sessions.sort(key=lambda x: x["id"])
         Log.info(f"Found {len(sessions)} Historical Sessions to crawl.")
-        
+
         for session in sessions:
             s_id = session["id"]
             Log.info(f"Process Session {s_id}: {session['type']} - No.: {session['session_number']} - Date: {session['start_date']}")
-            
+
             # Map unrecognized sessions to 'ordinaria' to fit enum, but we already warn later in attendance
             session_type = session["type"].lower()
             if session_type not in ["ordinaria", "extraordinaria", "solemne"]:
@@ -486,12 +507,12 @@ async def main():
                 session_type = "ordinaria"
 
             db.insert_session((s_id, session_type, session["session_number"], session["start_date"]))
-            
+
         if args.action in ["all", "load_attendance"]:
             await load_attendance_data(congressmen_dict, sessions)
-            
-        if args.action in ["all", "load_votations"]:
-            await load_votations_data(congressmen_dict, sessions)
+
+        if args.action in ["all", "load_voting"]:
+            await load_voting_data(congressmen_dict, sessions)
 
     Log.info("Crawl complete.")
 

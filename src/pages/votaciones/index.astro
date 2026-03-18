@@ -1,0 +1,258 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import db from '../../lib/db.js';
+
+// Fetch all votations — with outcome computed from vote totals at build time
+const voting = db.prepare(`
+  SELECT
+    v.id, v.subject, v.start_date, s.session_number,
+    SUM(CASE WHEN votes.vote_type = 'a_favor'   THEN 1 ELSE 0 END) AS total_favor,
+    SUM(CASE WHEN votes.vote_type = 'en_contra' THEN 1 ELSE 0 END) AS total_contra
+  FROM voting v
+  JOIN sessions s ON v.session_id = s.id
+  LEFT JOIN votes ON votes.voting_id = v.id
+  GROUP BY v.id
+  ORDER BY v.start_date DESC
+`).all();
+
+const formatDate = (dateString) => {
+  const options = { year: 'numeric', month: 'short', day: 'numeric' };
+  return new Date(dateString).toLocaleDateString('es-GT', options);
+};
+---
+
+<Layout title="Todas las Votaciones">
+  <div class="page-header">
+    <h1>Hemeroteca de Votaciones</h1>
+    <p class="text-muted">Explora y filtra {voting.length} votaciones registradas en el Congreso.</p>
+  </div>
+
+  <!-- Filter bar: text search + result filter -->
+  <div class="filters glass-panel">
+    <div class="filter-group" style="flex:1">
+      <label for="searchSubject">Buscar por Tema / Decreto</label>
+      <input type="text" id="searchSubject" placeholder="Ej. Presupuesto, Estado de Calamidad..." />
+    </div>
+    <div class="filter-group">
+      <label>Resultado</label>
+      <div class="result-btns" id="resultFilter">
+        <button class="result-btn active" data-result="all">Todos</button>
+        <button class="result-btn aprobado" data-result="aprobado">✓ Aprobadas</button>
+        <button class="result-btn rechazado" data-result="rechazado">✗ Rechazadas</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="results-count" id="resultsCount">{voting.length} votaciones</p>
+
+  <div class="votation-list" id="votationList">
+    {voting.map((v, index) => {
+      const hasVotes    = (v.total_favor + v.total_contra) > 0;
+      const isApproved  = hasVotes && v.total_favor > v.total_contra;
+      const outcome     = !hasVotes ? 'sin_votos' : isApproved ? 'aprobado' : 'rechazado';
+      const badgeLabel  = !hasVotes ? 'Sin votos' : isApproved ? 'Aprobado' : 'Rechazado';
+      const badgeColor  = !hasVotes ? 'var(--text-muted)'
+                        : isApproved ? 'var(--color-favor)' : 'var(--color-contra)';
+      return (
+        <a
+          href={`/votaciones/${v.id}`}
+          class="votation-card glass-panel"
+          data-subject={v.subject.toLowerCase()}
+          data-outcome={outcome}
+        >
+          <div class="votation-number">#{voting.length - index}</div>
+          <div class="votation-info">
+            <h3>{v.subject}</h3>
+            <div class="meta-tags">
+              <span class="badge" style="background: var(--bg-tertiary)">Sesión {v.session_number}</span>
+              <span class="text-muted text-small">{formatDate(v.start_date)}</span>
+            </div>
+          </div>
+          <!-- IMPROVEMENT 1: Outcome badge -->
+          <div class="outcome-block">
+            <span class="outcome-pill" style={`color:${badgeColor}; border-color:${badgeColor}; background:${badgeColor}22`}>
+              {badgeLabel}
+            </span>
+            {hasVotes && (
+              <span class="vote-tally">
+                <span style="color:var(--color-favor)">{v.total_favor}✓</span>
+                {' / '}
+                <span style="color:var(--color-contra)">{v.total_contra}✗</span>
+              </span>
+            )}
+          </div>
+        </a>
+      );
+    })}
+  </div>
+</Layout>
+
+<!-- IMPROVEMENT 2: Combined text + result filtering -->
+<script>
+  const searchInput   = document.getElementById('searchSubject') as HTMLInputElement;
+  const resultBtns    = document.querySelectorAll<HTMLButtonElement>('.result-btn');
+  const cards         = document.querySelectorAll<HTMLElement>('.votation-card');
+  const resultsCount  = document.getElementById('resultsCount')!;
+
+  let activeResult = 'all';
+
+  function applyFilters() {
+    const q = searchInput.value.toLowerCase().trim();
+    let visible = 0;
+    cards.forEach(card => {
+      const matchText   = !q || card.dataset.subject!.includes(q);
+      const matchResult = activeResult === 'all' || card.dataset.outcome === activeResult;
+      const show = matchText && matchResult;
+      card.style.display = show ? 'flex' : 'none';
+      if (show) visible++;
+    });
+    resultsCount.textContent = `${visible} votaciones`;
+  }
+
+  searchInput.addEventListener('input', applyFilters);
+
+  resultBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      resultBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeResult = btn.dataset.result!;
+      applyFilters();
+    });
+  });
+</script>
+
+<style>
+  .page-header { margin-bottom: 2rem; }
+
+  /* Filter bar */
+  .filters {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+    padding: 1.25rem 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .filter-group label {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .filter-group input {
+    padding: 0.65rem 0.9rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-size: 0.95rem;
+    font-family: inherit;
+    outline: none;
+    min-width: 280px;
+    transition: border-color var(--transition-fast);
+  }
+  .filter-group input:focus { border-color: var(--accent-color); }
+
+  /* IMPROVEMENT 2: Result filter buttons */
+  .result-btns {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .result-btn {
+    padding: 0.55rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+  }
+  .result-btn:hover { border-color: var(--accent-color); color: var(--text-light); }
+  .result-btn.active { background: var(--accent-color); border-color: var(--accent-color); color: #fff; }
+  .result-btn.aprobado.active { background: var(--color-favor); border-color: var(--color-favor); }
+  .result-btn.rechazado.active { background: var(--color-contra); border-color: var(--color-contra); }
+
+  /* Results count */
+  .results-count {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 1.25rem;
+    padding-left: 0.25rem;
+  }
+
+  /* Votation list */
+  .votation-list { display: flex; flex-direction: column; gap: 0.75rem; }
+
+  .votation-card {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.1rem 1.5rem;
+    color: inherit;
+    transition: border-color var(--transition-fast), transform var(--transition-fast);
+  }
+
+  .votation-number {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: var(--bg-tertiary);
+    background: var(--text-muted);
+    min-width: 46px;
+    height: 46px;
+    padding: 0 0.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+
+  .votation-info { flex: 1; min-width: 0; }
+  .votation-info h3 { margin: 0 0 0.5rem 0; font-size: 1rem; line-height: 1.35; color: var(--text-light); }
+
+  .meta-tags { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .text-small { font-size: 0.82rem; }
+
+  /* IMPROVEMENT 1: Outcome block */
+  .outcome-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.3rem;
+    flex-shrink: 0;
+    min-width: 90px;
+    text-align: right;
+  }
+  .outcome-pill {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.25em 0.75em;
+    border-radius: 999px;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+  .vote-tally { font-size: 0.7rem; white-space: nowrap; }
+
+  .votation-card:hover { border-color: var(--accent-color); transform: translateX(5px); }
+  .votation-card:hover .votation-number { background: var(--accent-color); color: var(--bg-color); }
+
+  @media (max-width: 640px) {
+    .filters { flex-direction: column; gap: 1rem; }
+    .filter-group input { min-width: unset; width: 100%; }
+    .votation-card { gap: 0.75rem; }
+    .outcome-block { min-width: 74px; }
+  }
+</style>

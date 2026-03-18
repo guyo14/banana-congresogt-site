@@ -1,0 +1,298 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import db from '../../lib/db.js';
+import DonutChart from '../../components/DonutChart.astro';
+
+export async function getStaticPaths() {
+  const sessions = db.prepare('SELECT id FROM sessions').all();
+  return sessions.map(s => ({
+    params: { id: s.id.toString() }
+  }));
+}
+
+const { id } = Astro.params;
+
+// Fetch Session details
+const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
+
+// Fetch Votations in this sesiones — with outcome computed from vote totals
+const voting = db.prepare(`
+  SELECT
+    vot.id, vot.subject, vot.start_date,
+    SUM(CASE WHEN v.vote_type = 'a_favor'   THEN 1 ELSE 0 END) AS total_favor,
+    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) AS total_contra
+  FROM voting vot
+  LEFT JOIN votes v ON v.voting_id = vot.id
+  WHERE vot.session_id = ?
+  GROUP BY vot.id
+  ORDER BY vot.start_date ASC
+`).all(id);
+
+// Fetch Aggregated Attendance
+const attendanceStats = db.prepare(`
+  SELECT 
+    COUNT(congressman_id) as total,
+    SUM(CASE WHEN status = 'presente'        THEN 1 ELSE 0 END) as present,
+    SUM(CASE WHEN status = 'ausente'         THEN 1 ELSE 0 END) as absent,
+    SUM(CASE WHEN status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
+  FROM attendance
+  WHERE session_id = ?
+`).get(id);
+
+// IMPROVEMENT 1: Fetch absent (and excused) congresistas for this sesiones
+const absentMembers = db.prepare(`
+  SELECT
+    c.id, c.first_name, c.last_name,
+    a.status,
+    p.name AS party_name
+  FROM attendance a
+  JOIN congressmen c ON c.id = a.congressman_id
+  LEFT JOIN parties p ON p.id = c.party_id
+  WHERE a.session_id = ? AND a.status IN ('ausente', 'licencia_excusa')
+  ORDER BY a.status ASC, c.first_name, c.last_name
+`).all(id);
+
+const formatDate = (dateString) => {
+  const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  return new Date(dateString).toLocaleDateString('es-GT', options);
+};
+
+const attTotal = attendanceStats.total || 0;
+const attPresent = attendanceStats.present || 0;
+const attExcused = attendanceStats.excused || 0;
+const attAbsent = attendanceStats.absent || 0;
+
+const attPct = attTotal > 0 ? (attPresent / attTotal) * 100 : 0;
+const excPct = attTotal > 0 ? (attExcused / attTotal) * 100 : 0;
+const formatPct = (num) => num.toFixed(1);
+---
+
+<Layout title={`Sesión No. ${session.session_number}`}>
+  <div class="page-header">
+    <div class="header-meta">
+      <span class="badge" style="background: var(--bg-tertiary)">{session.type.toUpperCase()}</span>
+      <span class="text-muted">{formatDate(session.start_date)}</span>
+    </div>
+    <h1>Sesión No. {session.session_number}</h1>
+    <p class="text-muted">Resumen de asistencia y votaciones realizadas.</p>
+  </div>
+
+  <div class="stats-container mb-3">
+    <div class="stats-card glass-panel">
+      <h2>Asistencia General</h2>
+      <div class="chart-wrapper">
+        <DonutChart 
+          id={`attendance-session-${session.id}`}
+          series={[attPresent, attExcused, attAbsent]} 
+          labels={['Presente', 'Excusa', 'Ausente']}
+          colors={['#10b981', '#00B2E3', '#ef4444']}
+        />
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> Presente</div><strong>{formatPct(attPct)}% ({attPresent})</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--accent-color)"></span> Excusa</div><strong>{formatPct(excPct)}% ({attExcused})</strong></div>
+          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> Ausente</div><strong>{formatPct(100 - attPct - excPct)}% ({attAbsent})</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Votations list with IMPROVEMENT 2: outcome badge -->
+  <div class="votations-section">
+    <h2>Votaciones Realizadas ({voting.length})</h2>
+    {voting.length > 0 ? (
+      <div class="votation-list">
+        {voting.map((v, index) => {
+          const isApproved   = v.total_favor > v.total_contra;
+          const hasVotes     = (v.total_favor + v.total_contra) > 0;
+          const outcomeLabel = hasVotes ? (isApproved ? 'Aprobado' : 'Rechazado') : 'Sin votos';
+          const outcomeColor = !hasVotes ? 'var(--text-muted)'
+                             : isApproved ? 'var(--color-favor)' : 'var(--color-contra)';
+          return (
+            <a href={`/votaciones/${v.id}`} class="votation-card glass-panel">
+              <div class="votation-number">#{index + 1}</div>
+              <div class="votation-info">
+                <h3>{v.subject}</h3>
+                <span class="text-muted text-small">{formatDate(v.start_date)}</span>
+              </div>
+              <div class="votation-outcome">
+                <span class="outcome-pill" style={`color:${outcomeColor}; border-color:${outcomeColor}; background:${outcomeColor}22`}>
+                  {outcomeLabel}
+                </span>
+                {hasVotes && (
+                  <span class="vote-tally">
+                    <span style="color:var(--color-favor)">{v.total_favor}✓</span>
+                    {' / '}
+                    <span style="color:var(--color-contra)">{v.total_contra}✗</span>
+                  </span>
+                )}
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    ) : (
+      <p class="text-muted glass-panel p-2">No se registraron votaciones en esta sesión.</p>
+    )}
+  </div>
+
+  <!-- IMPROVEMENT 1: Absent / excused congresistas grid -->
+  {absentMembers.length > 0 && (
+    <div class="absent-section">
+      <h2>
+        Diputados No Presentes
+        <span class="section-note">
+          <span class="dot-ausente"></span> {attAbsent} ausentes
+          <span class="dot-excused" style="margin-left:0.75rem"></span> {attExcused} excusas
+        </span>
+      </h2>
+      <div class="absent-grid">
+        {absentMembers.map(m => (
+          <a
+            href={`/congresistas/${m.id}`}
+            class={`absent-card glass-panel ${m.status === 'licencia_excusa' ? 'excused' : 'absent'}`}
+            title={`${m.first_name} ${m.last_name} — ${m.status === 'licencia_excusa' ? 'Excusa' : 'Ausente'}`}
+          >
+            <div class="absent-photo">
+              <img src={`/congressmen/${m.id}.jpg`} alt={m.first_name} loading="lazy" />
+              <span class={`status-dot ${m.status === 'licencia_excusa' ? 'dot-excused' : 'dot-ausente'}`}></span>
+            </div>
+            <div class="absent-info">
+              <span class="absent-name">{m.first_name} {m.last_name}</span>
+              <span class="absent-party">{m.party_name}</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  )}
+</Layout>
+
+<style>
+  .page-header { margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 2rem;}
+  .header-meta { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+  .page-header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; color: var(--accent-color); }
+  
+  .mb-3 { margin-bottom: 3rem; }
+  .p-2 { padding: 2rem; }
+  .text-small { font-size: 0.85rem; }
+
+  .stats-container { max-width: 600px; }
+  .stats-card { display: flex; flex-direction: column; gap: 1.5rem; }
+  .chart-wrapper { display: flex; align-items: center; gap: 2rem; }
+  .chart-legend { display: flex; flex-direction: column; gap: 0.75rem; flex-grow: 1; }
+  .legend-item {
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+  .legend-label-group { display: flex; align-items: center; gap: 0.75rem; }
+  .legend-item span { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+  .votations-section h2 { margin-bottom: 1.5rem; }
+  
+  /* Votation card — extend to accommodate outcome badge */
+  .votation-card {
+    display: flex; align-items: center; gap: 1.5rem; padding: 1.25rem 1.5rem;
+    color: inherit; transition: border-color var(--transition-fast), transform var(--transition-fast);
+  }
+  .votation-number {
+    font-size: 1.3rem; font-weight: 800;
+    color: var(--bg-tertiary); background: var(--text-muted);
+    width: 45px; height: 45px; display: flex; align-items: center;
+    justify-content: center; border-radius: 8px; flex-shrink: 0;
+  }
+  .votation-info { flex: 1; min-width: 0; }
+  .votation-info h3 { margin: 0 0 0.35rem 0; font-size: 1rem; line-height: 1.4; color: var(--text-light); }
+  .votation-card:hover { border-color: var(--accent-color); transform: translateX(5px); }
+  .votation-card:hover .votation-number { background: var(--accent-color); color: #ffffff; }
+
+  /* IMPROVEMENT 2: Outcome pill */
+  .votation-outcome {
+    display: flex; flex-direction: column; align-items: flex-end;
+    gap: 0.3rem; flex-shrink: 0;
+  }
+  .outcome-pill {
+    font-size: 0.72rem; font-weight: 700;
+    padding: 0.25em 0.7em; border-radius: 999px;
+    border: 1px solid; white-space: nowrap;
+  }
+  .vote-tally { font-size: 0.72rem; white-space: nowrap; }
+
+  /* IMPROVEMENT 1: Absent section */
+  .absent-section { margin-top: 3rem; }
+  .absent-section h2 {
+    margin-bottom: 1.5rem;
+    display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  }
+  .section-note {
+    font-size: 0.78rem; font-weight: 400; color: var(--text-muted);
+    display: flex; align-items: center; gap: 0.3rem;
+  }
+
+  /* Status dots in header */
+  .dot-ausente {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--color-contra); display: inline-block;
+  }
+  .dot-excused {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent-color); display: inline-block;
+  }
+
+  .absent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .absent-card {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.75rem; color: inherit;
+    transition: border-color var(--transition-fast);
+  }
+  .absent-card:hover  { border-color: var(--accent-color); }
+  .absent-card.absent { border-left: 3px solid var(--color-contra); }
+  .absent-card.excused { border-left: 3px solid var(--accent-color); }
+
+  .absent-photo {
+    position: relative; flex-shrink: 0;
+    width: 42px; height: 42px; border-radius: 50%; overflow: visible;
+  }
+  .absent-photo img, .absent-placeholder {
+    width: 42px; height: 42px; border-radius: 50%;
+    object-fit: cover; background: var(--bg-tertiary);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem;
+  }
+  .status-dot {
+    position: absolute; bottom: 0; right: 0;
+    width: 11px; height: 11px; border-radius: 50%;
+    border: 2px solid var(--bg-card);
+  }
+
+  .absent-info {
+    display: flex; flex-direction: column; gap: 0.15rem; min-width: 0;
+  }
+  .absent-name {
+    font-size: 0.82rem; font-weight: 600; color: var(--text-light);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 120px;
+  }
+  .absent-party {
+    font-size: 0.7rem; color: var(--text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 120px;
+  }
+
+  @media (max-width: 768px) {
+    .chart-wrapper { flex-direction: column; gap: 1rem; }
+    .votation-card { gap: 0.75rem; }
+    .absent-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  }
+</style>

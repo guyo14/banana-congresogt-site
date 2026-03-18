@@ -25,7 +25,7 @@ def export_all_tables_to_csv():
     """)
     tables = [row[0] for row in cur.fetchall()]
     
-    backup_dir = "../site/data"
+    backup_dir = "../data"
     os.makedirs(backup_dir, exist_ok=True)
     
     for table in tables:

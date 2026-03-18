@@ -1,0 +1,57 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import OrgCard from '../../components/OrgCard.astro';
+import db from '../../lib/db.js';
+
+// Get blocks with member count + attendance % + votes-in-favor % — all at build time
+const blocks = db.prepare(`
+  SELECT
+    b.id,
+    b.short_name,
+    b.name,
+    COUNT(DISTINCT c.id) AS member_count,
+
+    -- Attendance rate across all members of this party
+    ROUND(
+      100.0 * SUM(CASE WHEN a.status = 'presente' THEN 1 ELSE 0 END)
+            / MAX(COUNT(a.session_id), 1)
+    , 1) AS attendance_percent,
+
+    -- Votes-in-favor rate across all votes cast by party members
+    ROUND(
+      100.0 * SUM(CASE WHEN v.vote_type = 'a_favor' THEN 1 ELSE 0 END)
+            / MAX(COUNT(v.voting_id), 1)
+    , 1) AS in_favor_percent
+
+  FROM congressmen c
+  LEFT JOIN blocks b ON b.id = c.block_id
+  LEFT JOIN attendance a ON a.congressman_id = c.id
+  LEFT JOIN votes v ON v.congressman_id = c.id
+  GROUP BY b.id, b.short_name
+  ORDER BY member_count DESC, b.short_name
+`).all().map(b => ({
+    id: b.id ?? '-1',
+    name: b.name ?? 'Diputados independientes',
+    shortName: b.short_name ?? 'Sin bancada',
+    href: `/bancadas/${b.id ?? '-1'}`,
+    logo: `/blocks/${b.id ?? '-1'}.svg`,
+    memberCount: b.member_count,
+    attendancePercent: b.attendance_percent,
+    inFavorPercent: b.in_favor_percent,
+}));
+---
+
+<Layout title="Bancadas del Congreso">
+    <div class="page-header">
+        <h1>Bancadas del Congreso</h1>
+        <p class="text-muted">Directorio de bloques. Compara asistencia y tendencia de voto.</p>
+    </div>
+
+    <div class="grid-cards">
+        {blocks.map(({ logo, shortName, name, ...block }) =>
+          <OrgCard {...block} name={shortName}>
+              <img src={logo} alt={name} class="fit" />
+          </OrgCard>
+        )}
+    </div>
+</Layout>

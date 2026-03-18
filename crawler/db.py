@@ -42,12 +42,31 @@ def init_aliases():
     conn.close()
     print("Aliases initialized.")
 
-def insert_parties(parties):
+def insert_blocks(blocks):
+    # blocks: list of tuples (id, name, short_name)
     query = """
-    INSERT INTO parties (id, name)
+    INSERT INTO blocks (id, name, short_name)
     VALUES %s
     ON CONFLICT (id) DO UPDATE SET
-        name = EXCLUDED.name;
+        name = EXCLUDED.name,
+        short_name = EXCLUDED.short_name;
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    execute_values(cur, query, blocks)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def insert_parties(parties):
+    # parties: list of tuples (id, name, short_name, block_id)
+    query = """
+    INSERT INTO parties (id, name, short_name, block_id)
+    VALUES %s
+    ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        short_name = EXCLUDED.short_name,
+        block_id = EXCLUDED.block_id;
     """
     conn = get_connection()
     cur = conn.cursor()
@@ -71,10 +90,9 @@ def insert_districts(districts):
     conn.close()
 
 def insert_congressmen(congressmen):
-    # congressmen is a list of tuples: (id, first_name, last_name, key, party_id, district_id, photo_url, birth_date, status)
-    # The 'name' column in DB is kept but will no longer be explicitly inserted from the crawler, instead we use first_name and last_name
+    # congressmen is a list of tuples: (id, first_name, last_name, key, party_id, district_id, birth_date, status, block_id)
     query = """
-    INSERT INTO congressmen (id, first_name, last_name, key, party_id, district_id, photo_url, birth_date, status)
+    INSERT INTO congressmen (id, first_name, last_name, key, party_id, district_id, birth_date, status, block_id)
     VALUES %s
     ON CONFLICT (id) DO UPDATE SET
         first_name = EXCLUDED.first_name,
@@ -82,9 +100,9 @@ def insert_congressmen(congressmen):
         key = EXCLUDED.key,
         party_id = EXCLUDED.party_id,
         district_id = EXCLUDED.district_id,
-        photo_url = EXCLUDED.photo_url,
         birth_date = EXCLUDED.birth_date,
-        status = EXCLUDED.status;
+        status = EXCLUDED.status,
+        block_id = EXCLUDED.block_id;
     """
     conn = get_connection()
     cur = conn.cursor()
@@ -145,10 +163,10 @@ def insert_session(session):
     cur.close()
     conn.close()
 
-def insert_votation(votation):
-    # votation: (id, session_id, subject, start_date)
+def insert_voting(voting):
+    # voting: (id, session_id, subject, start_date)
     query = """
-    INSERT INTO votations (id, session_id, subject, start_date)
+    INSERT INTO voting (id, session_id, subject, start_date)
     VALUES (%s, %s, %s, %s)
     ON CONFLICT (id) DO UPDATE SET
         session_id = EXCLUDED.session_id,
@@ -157,17 +175,17 @@ def insert_votation(votation):
     """
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(query, votation)
+    cur.execute(query, voting)
     conn.commit()
     cur.close()
     conn.close()
 
 def insert_votes(votes):
-    # votes: list of (votation_id, congressman_id, vote_type, attendance_status)
+    # votes: list of (voting_id, congressman_id, vote_type, attendance_status)
     query = """
-    INSERT INTO votes (votation_id, congressman_id, vote_type, attendance_status)
+    INSERT INTO votes (voting_id, congressman_id, vote_type, attendance_status)
     VALUES %s
-    ON CONFLICT (votation_id, congressman_id) DO UPDATE SET
+    ON CONFLICT (voting_id, congressman_id) DO UPDATE SET
         vote_type = EXCLUDED.vote_type,
         attendance_status = EXCLUDED.attendance_status;
     """

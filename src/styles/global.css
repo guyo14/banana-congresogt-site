@@ -17,7 +17,11 @@
   --color-favor: #10b981;
   --color-contra: #ef4444;
   --color-ausente: #94a3b8;
-  
+
+  --color-acceptable: #10b981;
+  --color-borderline: #f0a500;
+  --color-unacceptable: #ef4444;
+
   /* Layout */
   --max-width: 1200px;
   --nav-height: 70px;
@@ -55,6 +59,15 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-light);
   line-height: 1.2;
   margin-bottom: 1rem;
+}
+
+.page-header {
+  margin-bottom: 2rem;
+}
+
+.fit {
+  max-width: 100%;
+  max-height: 100%;
 }
 
 /* Glassmorphism utility */

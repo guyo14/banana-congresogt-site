@@ -1,20 +1,18 @@
-id,name
-45,CABAL
-40,Comunidad Elefante
-27,Vamos por una Guatemala Diferente
-7,TODOS
-8,"Compromiso, Renovación y Orden"
-9,Partido Político Visión con Valores
-28,Valor
-2,Partido Unionista
-11,Independiente
-46,"Voluntad, Oportunidad y Solidaridad"
-1,Unidad Nacional de la Esperanza
-15,Alianza Ciudadana
-29,Victoria
-13,Frente de Convergencia Nacional
-35,Partido Político Nosotros
-42,Movimiento Político Winaq-Unidad Revolucionaria Nacional Guatemalteca
-37,CAMBIO
-41,Partido Azul
-34,Bienestar Nacional
+id,name,short_name,block_id
+6,Movimiento Semilla,Semilla,
+15,Partido Azul,Azul,16
+10,"Voluntad, Oportunidad y Solidaridad",VOS,10
+12,Partido Político Nosotros,Nosotros,13
+4,Vamos por una Guatemala Diferente,VAMOS,4
+5,Valor,Valor,8
+14,CAMBIO,CAMBIO,15
+7,TODOS,TODOS,5
+9,Visión con Valores,VIVA,7
+3,Comunidad Elefante,Elefante,3
+16,Bienestar Nacional,BIEN,17
+2,Partido Unionista,Unionista,9
+1,Unidad Nacional de la Esperanza,UNE,11
+11,Victoria,Victoria,12
+13,Movimiento Político Winaq - Unidad Revolucionaria Nacional Guatemalteca,Winaq,14
+8,"Compromiso, Renovación y Orden",CREO,6
+17,Cabal,CABAL,2

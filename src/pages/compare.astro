@@ -1,0 +1,418 @@
+---
+import Layout from '../layouts/Layout.astro';
+import db from '../lib/db.js';
+
+// Build: embed a compact dataset for all congresistas (subqueries avoid Cartesian product)
+const dataset = db.prepare(`
+  SELECT
+    c.id,
+    c.first_name,
+    c.last_name,
+    p.name  AS party_name,
+    d.name  AS district_name,
+    COALESCE(att.att_pct,   0) AS att_pct,
+    COALESCE(att.exc_pct,   0) AS exc_pct,
+    COALESCE(vot.favor_pct, 0) AS favor_pct,
+    COALESCE(vot.contra_pct,0) AS contra_pct,
+    COALESCE(att.session_count, 0) AS sessions_attended,
+    COALESCE(vot.vote_count, 0)    AS total_votes
+  FROM congressmen c
+  LEFT JOIN parties   p ON p.id = c.party_id
+  LEFT JOIN districts d ON d.id = c.district_id
+  LEFT JOIN (
+    SELECT
+      congressman_id,
+      COUNT(*) AS session_count,
+      ROUND(100.0 * SUM(CASE WHEN status = 'presente'        THEN 1 ELSE 0 END) / COUNT(*), 1) AS att_pct,
+      ROUND(100.0 * SUM(CASE WHEN status = 'licencia_excusa' THEN 1 ELSE 0 END) / COUNT(*), 1) AS exc_pct
+    FROM attendance
+    GROUP BY congressman_id
+  ) att ON att.congressman_id = c.id
+  LEFT JOIN (
+    SELECT
+      congressman_id,
+      COUNT(*) AS vote_count,
+      ROUND(100.0 * SUM(CASE WHEN vote_type = 'a_favor'   THEN 1 ELSE 0 END) / COUNT(*), 1) AS favor_pct,
+      ROUND(100.0 * SUM(CASE WHEN vote_type = 'en_contra' THEN 1 ELSE 0 END) / COUNT(*), 1) AS contra_pct
+    FROM votes
+    GROUP BY congressman_id
+  ) vot ON vot.congressman_id = c.id
+  ORDER BY c.first_name, c.last_name
+`).all();
+
+const jsonData = JSON.stringify(dataset);
+---
+
+<Layout title="Comparar Diputados">
+  <div class="page-header">
+    <h1>Comparar Diputados</h1>
+    <p class="text-muted">Selecciona hasta 3 diputados para comparar su desempeño lado a lado.</p>
+  </div>
+
+  <!-- Slot selectors -->
+  <div class="slot-bar" id="slotBar">
+    {[0, 1, 2].map(i => (
+      <div class="slot" id={`slot-${i}`} data-slot={i}>
+        <div class="slot-search-wrap">
+          <input
+            type="text"
+            class="slot-input"
+            placeholder={i === 0 ? 'Buscar diputado...' : 'Agregar otro...'}
+            autocomplete="off"
+            id={`slot-input-${i}`}
+          />
+          <div class="slot-dropdown" id={`slot-dropdown-${i}`}></div>
+        </div>
+        <button class="slot-clear hidden" id={`slot-clear-${i}`} title="Quitar" aria-label="Quitar diputado">✕</button>
+      </div>
+    ))}
+  </div>
+
+  <!-- Hint shown before any selection -->
+  <div id="emptyHint" class="empty-hint glass-panel">
+    <span class="hint-icon">⚖️</span>
+    <div>
+      <strong>Compara a tus representantes</strong>
+      <p class="text-muted">Busca un diputado en los campos de arriba para comenzar. Puedes agregar hasta 3.</p>
+    </div>
+  </div>
+
+  <!-- Comparison cards -->
+  <div class="compare-grid" id="compareGrid"></div>
+</Layout>
+
+<!-- Embed dataset at build time -->
+<script define:vars={{ jsonData }}>
+  const DATA = JSON.parse(jsonData);
+  const MAX_SLOTS = 3;
+  const selected  = [null, null, null]; // selected congressman per slot
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  const attColor   = pct => pct >= 80 ? 'var(--color-favor)' : pct >= 50 ? '#f0a500' : 'var(--color-contra)';
+  const favorColor = pct => pct >= 60 ? 'var(--color-favor)' : pct >= 40 ? '#f0a500' : 'var(--color-contra)';
+
+  function renderCard(c) {
+    const absPct = Math.max(0, 100 - c.att_pct - c.exc_pct);
+    return `
+      <div class="cmp-card glass-panel">
+        <a href="/congressman/${c.id}" class="cmp-link" title="Ver perfil completo">
+          <img
+            src="/congressmen/face/${c.id}.jpg"
+            alt="${c.first_name}"
+            class="cmp-photo"
+            onerror="this.src='/placeholder.svg'; this.onerror=null;"
+          />
+          <div class="cmp-identity">
+            <span class="cmp-name">${c.first_name} ${c.last_name}</span>
+            <span class="cmp-party">${c.party_name ?? '—'}</span>
+            <span class="cmp-district">${c.district_name ?? '—'}</span>
+          </div>
+        </a>
+
+        <div class="cmp-section">
+          <span class="cmp-label">Asistencia</span>
+          <div class="cmp-bar-row">
+            <div class="cmp-bar-track">
+              <div class="cmp-bar-fill" style="width:${c.att_pct}%;background:${attColor(c.att_pct)}"></div>
+            </div>
+            <span class="cmp-pct" style="color:${attColor(c.att_pct)}">${c.att_pct}%</span>
+          </div>
+        </div>
+
+        <div class="cmp-section">
+          <span class="cmp-label">Distribución de votos</span>
+          <div class="cmp-triple-bar">
+            <div class="cmp-seg favor"  style="width:${c.favor_pct}%"  title="A Favor: ${c.favor_pct}%"></div>
+            <div class="cmp-seg contra" style="width:${c.contra_pct}%" title="En Contra: ${c.contra_pct}%"></div>
+            <div class="cmp-seg ausent" style="width:${Math.max(0, 100 - c.favor_pct - c.contra_pct)}%" title="Ausente/Abstención"></div>
+          </div>
+          <div class="cmp-vote-legend">
+            <span><span class="dot favor"></span> A Favor: <strong style="color:var(--color-favor)">${c.favor_pct}%</strong></span>
+            <span><span class="dot contra"></span> En Contra: <strong style="color:var(--color-contra)">${c.contra_pct}%</strong></span>
+            <span><span class="dot ausent"></span> Ausente: <strong>${absPct.toFixed(1)}%</strong></span>
+          </div>
+        </div>
+
+        <div class="cmp-stats-row">
+          <div class="cmp-stat">
+            <span class="cmp-stat-val">${c.sessions_attended}</span>
+            <span class="cmp-stat-key">sesiones</span>
+          </div>
+          <div class="cmp-stat">
+            <span class="cmp-stat-val">${c.total_votes}</span>
+            <span class="cmp-stat-key">votaciones</span>
+          </div>
+        </div>
+
+        <a href="/congressman/${c.id}" class="cmp-profile-btn">Ver perfil completo →</a>
+      </div>
+    `;
+  }
+
+  function refreshGrid() {
+    const active = selected.filter(Boolean);
+    const grid   = document.getElementById('compareGrid');
+    const hint   = document.getElementById('emptyHint');
+
+    if (active.length === 0) {
+      grid.innerHTML = '';
+      hint.style.display = 'flex';
+      grid.style.gridTemplateColumns = '';
+    } else {
+      hint.style.display = 'none';
+      grid.style.gridTemplateColumns = `repeat(${active.length}, 1fr)`;
+      grid.innerHTML = selected
+        .filter(Boolean)
+        .map(c => renderCard(c))
+        .join('');
+    }
+  }
+
+  // ─── Autocomplete per slot ─────────────────────────────────────────────────
+
+  function setupSlot(slotIdx) {
+    const input    = document.getElementById(`slot-input-${slotIdx}`);
+    const dropdown = document.getElementById(`slot-dropdown-${slotIdx}`);
+    const clearBtn = document.getElementById(`slot-clear-${slotIdx}`);
+
+    input.addEventListener('input', () => {
+      const q = input.value.toLowerCase().trim();
+      dropdown.innerHTML = '';
+      if (!q || q.length < 2) { dropdown.classList.remove('open'); return; }
+
+      const matches = DATA
+        .filter(c => `${c.first_name} ${c.last_name} ${c.party_name ?? ''}`.toLowerCase().includes(q))
+        .slice(0, 8);
+
+      if (!matches.length) { dropdown.classList.remove('open'); return; }
+
+      matches.forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'dd-item';
+        item.innerHTML = `
+          <img src="/congressmen/face/${c.id}.jpg" alt="" class="dd-photo"
+               onerror="this.src='/placeholder.svg'; this.onerror=null;">
+          <div class="dd-text">
+            <span class="dd-name">${c.first_name} ${c.last_name}</span>
+            <span class="dd-party">${c.party_name ?? ''}</span>
+          </div>`;
+        item.addEventListener('mousedown', e => {
+          e.preventDefault(); // keep focus
+          selectCongressman(slotIdx, c);
+        });
+        dropdown.appendChild(item);
+      });
+      dropdown.classList.add('open');
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => dropdown.classList.remove('open'), 150);
+    });
+
+    clearBtn.addEventListener('click', () => {
+      selected[slotIdx] = null;
+      input.value = '';
+      input.disabled = false;
+      clearBtn.classList.add('hidden');
+      dropdown.classList.remove('open');
+      refreshGrid();
+    });
+  }
+
+  function selectCongressman(slotIdx, c) {
+    selected[slotIdx] = c;
+    const input    = document.getElementById(`slot-input-${slotIdx}`);
+    const dropdown = document.getElementById(`slot-dropdown-${slotIdx}`);
+    const clearBtn = document.getElementById(`slot-clear-${slotIdx}`);
+
+    input.value    = `${c.first_name} ${c.last_name}`;
+    input.disabled = true;
+    dropdown.classList.remove('open');
+    clearBtn.classList.remove('hidden');
+    refreshGrid();
+  }
+
+  // Init all slots
+  [0, 1, 2].forEach(i => setupSlot(i));
+</script>
+
+<style>
+  .page-header { margin-bottom: 2rem; }
+
+  /* Slot bar */
+  .slot-bar {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .slot {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 1;
+    min-width: 200px;
+    position: relative;
+  }
+  .slot-search-wrap { flex: 1; position: relative; }
+
+  .slot-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-size: 0.95rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--transition-fast);
+  }
+  .slot-input:focus    { border-color: var(--accent-color); }
+  .slot-input:disabled { background: var(--bg-tertiary); color: var(--text-light); font-weight: 600; }
+
+  /* Dropdown */
+  .slot-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    z-index: 100;
+    overflow: hidden;
+  }
+  .slot-dropdown.open { display: block; }
+
+  .dd-item {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.6rem 0.9rem;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+  }
+  .dd-item:hover { background: var(--bg-tertiary); }
+  .dd-photo { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+  .dd-text  { display: flex; flex-direction: column; min-width: 0; }
+  .dd-name  { font-size: 0.85rem; font-weight: 600; color: var(--text-light); }
+  .dd-party { font-size: 0.72rem; color: var(--text-muted); }
+
+  /* Clear button */
+  .slot-clear {
+    width: 28px; height: 28px; flex-shrink: 0;
+    background: var(--bg-tertiary); border: 1px solid var(--border-color);
+    border-radius: 50%; cursor: pointer; font-size: 0.7rem;
+    color: var(--text-muted); transition: all var(--transition-fast);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .slot-clear:hover { background: var(--color-contra); color: #fff; border-color: var(--color-contra); }
+  .hidden { display: none !important; }
+
+  /* Empty hint */
+  .empty-hint {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 2rem;
+    margin-top: 1rem;
+  }
+  .hint-icon { font-size: 2.5rem; flex-shrink: 0; }
+
+  /* Compare grid */
+  .compare-grid {
+    display: grid;
+    gap: 1.25rem;
+    align-items: start;
+    margin-top: 0.5rem;
+  }
+
+  /* Individual comparison card */
+  .cmp-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem;
+  }
+
+  .cmp-link {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    color: inherit;
+    text-decoration: none;
+  }
+  .cmp-link:hover .cmp-name { color: var(--accent-color); }
+
+  .cmp-photo {
+    width: 56px; height: 56px; border-radius: 50%;
+    object-fit: cover; flex-shrink: 0;
+    border: 2px solid var(--border-color);
+  }
+  .cmp-identity { display: flex; flex-direction: column; min-width: 0; }
+  .cmp-name     { font-size: 1rem; font-weight: 700; color: var(--text-light); }
+  .cmp-party    { font-size: 0.78rem; color: var(--text-muted); }
+  .cmp-district { font-size: 0.72rem; color: var(--text-muted); }
+
+  .cmp-section { display: flex; flex-direction: column; gap: 0.5rem; }
+  .cmp-label { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* Attendance bar */
+  .cmp-bar-row   { display: flex; align-items: center; gap: 0.5rem; }
+  .cmp-bar-track { flex: 1; height: 10px; background: var(--bg-tertiary); border-radius: 999px; overflow: hidden; }
+  .cmp-bar-fill  { height: 100%; border-radius: 999px; }
+  .cmp-pct       { font-size: 0.85rem; font-weight: 700; flex-shrink: 0; }
+
+  /* Triple vote bar */
+  .cmp-triple-bar {
+    display: flex; height: 10px; border-radius: 999px; overflow: hidden;
+    background: var(--bg-tertiary);
+  }
+  .cmp-seg { height: 100%; transition: width 0.3s; }
+  .cmp-seg.favor  { background: var(--color-favor); }
+  .cmp-seg.contra { background: var(--color-contra); }
+  .cmp-seg.ausent { background: var(--color-ausente); }
+
+  .cmp-vote-legend {
+    display: flex; flex-wrap: wrap; gap: 0.5rem 1rem;
+    font-size: 0.75rem; color: var(--text-muted);
+  }
+  .cmp-vote-legend span { display: flex; align-items: center; gap: 0.3rem; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.favor  { background: var(--color-favor); }
+  .dot.contra { background: var(--color-contra); }
+  .dot.ausent { background: var(--color-ausente); }
+
+  /* Stats row */
+  .cmp-stats-row { display: flex; gap: 1rem; }
+  .cmp-stat {
+    flex: 1;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 0.6rem;
+    text-align: center;
+  }
+  .cmp-stat-val { display: block; font-size: 1.3rem; font-weight: 800; color: var(--text-light); }
+  .cmp-stat-key { font-size: 0.7rem; color: var(--text-muted); }
+
+  /* Profile button */
+  .cmp-profile-btn {
+    display: block; text-align: center;
+    padding: 0.65rem;
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    color: var(--accent-color);
+    font-size: 0.85rem; font-weight: 600;
+    border: 1px solid var(--border-color);
+    transition: all var(--transition-fast);
+  }
+  .cmp-profile-btn:hover { background: var(--accent-color); color: #fff; border-color: var(--accent-color); }
+
+  @media (max-width: 640px) {
+    .slot-bar { flex-direction: column; }
+    .compare-grid { grid-template-columns: 1fr !important; }
+  }
+</style>

@@ -1,0 +1,178 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import db from '../../lib/db.js';
+import CongressmanCard from "../../components/CongressmanCard.astro";
+
+// Fetch congressmen with their attendance percentage computed at build time
+const congressmen = db.prepare(`
+  SELECT 
+    c.id, c.first_name, c.last_name, c.status,
+    b.id as block_id,
+    b.short_name as block_name,
+    d.id as district_id,
+    d.name as district_name,
+    ROUND(
+      100.0 * SUM(CASE WHEN a.status = 'presente' THEN 1 ELSE 0 END)
+            / MAX(COUNT(a.session_id), 1)
+    , 1) AS attendance_percent
+  FROM congressmen c
+  LEFT JOIN blocks b ON c.block_id = b.id 
+  LEFT JOIN districts d ON c.district_id = d.id
+  LEFT JOIN attendance a ON a.congressman_id = c.id
+  WHERE c.status = 'active'
+  GROUP BY c.id, c.first_name, c.last_name
+  ORDER BY c.first_name, c.last_name
+`).all().map(c => ({
+  id: c.id,
+  fullName: `${c.first_name} ${c.last_name}`,
+  firstName: c.first_name,
+  lastName: c.last_name,
+  blockId: c.block_id ?? '-1',
+  blockName: c.block_name ?? 'Independiente',
+  districtId: c.district_id,
+  districtName: c.district_name,
+  attendancePercent: c.attendance_percent
+}));
+
+const blocks = db.prepare('SELECT id, short_name AS name FROM blocks ORDER BY name').all();
+const districts = db.prepare('SELECT id, name FROM districts ORDER BY name').all();
+---
+
+<Layout title="Diputados">
+  <div class="page-header">
+    <h1>Diputados del Congreso</h1>
+    <p class="text-muted">Directorio completo de los representantes electos.</p>
+  </div>
+
+  <div class="filters glass-panel">
+    <div class="filter-group">
+      <label for="searchName">Buscar por Nombre</label>
+      <input type="text" id="searchName" placeholder="Ej. Luis Fernando..." />
+    </div>
+    <div class="filter-group">
+      <label for="filterBlock">Filtrar por Bancada</label>
+      <select id="filterBlock">
+        <option value="">Todos</option>
+        <option value="-1">Independientes</option>
+        {blocks.map(b => <option value={b.id}>{b.name}</option>)}
+      </select>
+    </div>
+    <div class="filter-group">
+      <label for="filterDistrict">Filtrar por Distrito</label>
+      <select id="filterDistrict">
+        <option value="">Todos</option>
+        {districts.map(d => <option value={d.id}>{d.name}</option>)}
+      </select>
+    </div>
+    <div class="filter-group">
+      <label for="sortBy">Ordenar por</label>
+      <select id="sortBy">
+        <option value="name">Nombre (A–Z)</option>
+        <option value="attendance_desc">Mayor asistencia</option>
+        <option value="attendance_asc">Más ausencias</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid-cards" id="congressmanList">
+    {congressmen.map(c => <CongressmanCard {...c} />)}
+  </div>
+</Layout>
+
+<script>
+  const searchName = document.getElementById('searchName') as HTMLInputElement;
+  const filterBlock = document.getElementById('filterBlock') as HTMLSelectElement;
+  const filterDistrict = document.getElementById('filterDistrict') as HTMLSelectElement;
+  const sortBy = document.getElementById('sortBy') as HTMLSelectElement;
+  const list = document.getElementById('congressmanList') as HTMLElement;
+
+  function getCards() {
+    return Array.from(list.querySelectorAll('.congressman-card')) as HTMLElement[];
+  }
+
+  function applyFilters() {
+    const nameVal = searchName.value.toLowerCase();
+    const blockVal = filterBlock.value;
+    const districtVal = filterDistrict.value;
+
+    getCards().forEach(card => {
+      const name = card.dataset.name ?? '';
+      const block = card.dataset.block ?? '';
+      const district = card.dataset.district ?? '';
+
+      const visible =
+        name.includes(nameVal) &&
+        (blockVal === '' || block === blockVal) &&
+        (districtVal === '' || district === districtVal);
+
+      card.style.display = visible ? 'flex' : 'none';
+    });
+  }
+
+  function applySort() {
+    const order = sortBy.value;
+    const cards = getCards();
+
+    cards.sort((a, b) => {
+      if (order === 'name') {
+        return (a.dataset.name ?? '').localeCompare(b.dataset.name ?? '', 'es');
+      }
+      const aAtt = parseInt(a.dataset.attendance);
+      const bAtt = parseInt(b.dataset.attendance);
+      return order === 'attendance_desc' ? bAtt - aAtt : aAtt - bAtt;
+    });
+
+    // Re-append in sorted order (hidden cards stay hidden via style)
+    cards.forEach(card => list.appendChild(card));
+  }
+
+  searchName.addEventListener('input', applyFilters);
+  filterBlock.addEventListener('change', applyFilters);
+  filterDistrict.addEventListener('change', applyFilters);
+  sortBy.addEventListener('change', () => { applySort(); applyFilters(); });
+</script>
+
+<style>
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .filter-group label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .filter-group input, .filter-group select {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-size: 1rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--transition-fast);
+  }
+
+  .filter-group input:focus, .filter-group select:focus {
+    border-color: var(--accent-color);
+  }
+
+  @media (max-width: 768px) {
+    .filters {
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+  }
+</style>

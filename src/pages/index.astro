@@ -5,14 +5,29 @@ import db from '../lib/db.js';
 // Get high-level metrics for the landing page
 const stats = {
   congressmen: db.prepare('SELECT COUNT(*) as count FROM congressmen').get().count,
-  parties: db.prepare('SELECT COUNT(*) as count FROM parties').get().count,
+  blocks: db.prepare('SELECT COUNT(*) as count FROM blocks').get().count,
   sessions: db.prepare('SELECT COUNT(*) as count FROM sessions').get().count,
-  votations: db.prepare('SELECT COUNT(*) as count FROM votations').get().count
+  voting: db.prepare('SELECT COUNT(*) as count FROM voting').get().count
 };
+
+// Derive the "data freshness" date from the most recent sesiones
+const lastSession = db.prepare('SELECT start_date FROM sessions ORDER BY start_date DESC LIMIT 1').get();
+const lastUpdateDate = lastSession
+  ? new Date(lastSession.start_date).toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })
+  : null;
 ---
 
 <Layout title="Inicio">
   <div class="hero-section text-center">
+    <div class="hero-meta">
+      <span class="legislature-badge">X Legislatura · 2024&ndash;2027</span>
+      {lastUpdateDate && (
+        <span class="update-pill" title="Fecha de la última sesión registrada en el sistema">
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Datos al {lastUpdateDate}
+        </span>
+      )}
+    </div>
     <h1 class="hero-title">Audita a tu Congreso</h1>
     <p class="hero-subtitle text-muted">
       Explora, compara y recuerda cómo han votado y participado tus representantes. 
@@ -24,25 +39,25 @@ const stats = {
     <div class="stat-card glass-panel">
       <h3>{stats.congressmen}</h3>
       <p class="text-muted">Diputados</p>
-      <a href="/congressmen" class="btn-link">Ver todos &rarr;</a>
+      <a href="/congresistas" class="btn-link">Ver todos &rarr;</a>
     </div>
     
     <div class="stat-card glass-panel">
-      <h3>{stats.parties}</h3>
+      <h3>{stats.blocks}</h3>
       <p class="text-muted">Bancadas</p>
-      <a href="/parties" class="btn-link">Ver agrupaciones &rarr;</a>
+      <a href="/bancadas" class="btn-link">Ver bancadas &rarr;</a>
     </div>
     
     <div class="stat-card glass-panel">
       <h3>{stats.sessions}</h3>
       <p class="text-muted">Sesiones</p>
-      <a href="/sessions" class="btn-link">Ver historial &rarr;</a>
+      <a href="/sesiones" class="btn-link">Ver historial &rarr;</a>
     </div>
     
     <div class="stat-card glass-panel">
-      <h3>{stats.votations}</h3>
+      <h3>{stats.voting}</h3>
       <p class="text-muted">Votaciones</p>
-      <a href="/votations" class="btn-link">Explorar votos &rarr;</a>
+      <a href="/votaciones" class="btn-link">Explorar votos &rarr;</a>
     </div>
   </div>
 </Layout>
@@ -50,6 +65,46 @@ const stats = {
 <style>
   .hero-section {
     padding: 4rem 0 3rem;
+  }
+
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+
+  .legislature-badge {
+    display: inline-block;
+    padding: 0.35em 1em;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent-color);
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    text-transform: uppercase;
+  }
+
+  .update-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.35em 0.9em;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+  }
+
+  .update-pill svg {
+    flex-shrink: 0;
+    opacity: 0.7;
   }
   
   .hero-title {
@@ -95,6 +150,9 @@ const stats = {
   @media (max-width: 768px) {
     .hero-section {
       padding: 2rem 0 1.5rem;
+    }
+    .hero-meta {
+      gap: 0.5rem;
     }
     .hero-title {
       font-size: 2rem;

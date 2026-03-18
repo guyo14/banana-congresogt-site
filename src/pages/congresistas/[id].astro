@@ -1,0 +1,509 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import db from '../../lib/db.js';
+import DonutChart from '../../components/DonutChart.astro';
+
+export async function getStaticPaths() {
+  const congressmen = db.prepare('SELECT id FROM congressmen').all();
+  return congressmen.map(c => ({
+    params: { id: c.id.toString() }
+  }));
+}
+
+const { id } = Astro.params;
+
+// Fetch Congressman details
+const congressman = db.prepare(`
+  SELECT c.*, p.name as party_name, d.name as district_name 
+  FROM congressmen c 
+  LEFT JOIN parties p ON c.party_id = p.id 
+  LEFT JOIN districts d ON c.district_id = d.id
+  WHERE c.id = ?
+`).get(id);
+
+// Fetch Overall Attendance
+const attendanceStats = db.prepare(`
+  SELECT 
+    COUNT(*) as total,
+    SUM(CASE WHEN status = 'presente' THEN 1 ELSE 0 END) as present,
+    SUM(CASE WHEN status = 'ausente' THEN 1 ELSE 0 END) as absent,
+    SUM(CASE WHEN status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
+  FROM attendance
+  WHERE congressman_id = ?
+`).get(id);
+
+// Fetch All Sessions Attendance for Heatmap
+const allAttendance = db.prepare(`
+  SELECT a.status, s.start_date, s.session_number
+  FROM attendance a
+  JOIN sessions s ON a.session_id = s.id
+  WHERE a.congressman_id = ?
+  ORDER BY s.start_date
+`).all(id);
+
+// Attendance breakdown by year
+const attendanceByYear = db.prepare(`
+  SELECT 
+    strftime('%Y', s.start_date) AS year,
+    COUNT(*) as total,
+    SUM(CASE WHEN a.status = 'presente'        THEN 1 ELSE 0 END) as present,
+    SUM(CASE WHEN a.status = 'ausente'         THEN 1 ELSE 0 END) as absent,
+    SUM(CASE WHEN a.status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
+  FROM attendance a
+  JOIN sessions s ON a.session_id = s.id
+  WHERE a.congressman_id = ?
+  GROUP BY year
+  ORDER BY year
+`).all(id);
+
+// Votes breakdown by year
+const voteStats = db.prepare(`
+  SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN v.vote_type = 'a_favor' THEN 1 ELSE 0 END) as favor,
+    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) as contra,
+    SUM(CASE WHEN v.vote_type = 'ausente' THEN 1 ELSE 0 END) as absent
+  FROM votes v
+  WHERE congressman_id = ?
+`).get(id);
+
+// Votes breakdown by year
+const voteByYear = db.prepare(`
+  SELECT
+    strftime('%Y', s.start_date) AS year,
+    COUNT(*) as total,
+    SUM(CASE WHEN v.vote_type = 'a_favor' THEN 1 ELSE 0 END) as favor,
+    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) as contra,
+    SUM(CASE WHEN v.vote_type = 'ausente' THEN 1 ELSE 0 END) as absent
+  FROM votes v
+  JOIN voting vot ON v.voting_id = vot.id
+  JOIN sessions s ON vot.session_id = s.id
+  WHERE congressman_id = ?
+  GROUP BY year
+  ORDER BY year
+`).get(id);
+
+// All votaciones with outcome context (no LIMIT)
+const allVotes = db.prepare(`
+  SELECT 
+    v.vote_type,
+    vot.subject,
+    vot.start_date,
+    vot.id as voting_id,
+    -- compute outcome of the votaciones itself
+    SUM(CASE WHEN v2.vote_type = 'a_favor'  THEN 1 ELSE 0 END) OVER (PARTITION BY vot.id) AS total_favor,
+    SUM(CASE WHEN v2.vote_type = 'en_contra' THEN 1 ELSE 0 END) OVER (PARTITION BY vot.id) AS total_contra
+  FROM votes v
+  JOIN voting vot ON v.voting_id = vot.id
+  JOIN votes v2     ON v2.voting_id = vot.id
+  WHERE v.congressman_id = ?
+  GROUP BY v.voting_id, vot.start_date
+  ORDER BY vot.start_date DESC
+`).all(id);
+
+// Calculate percentages
+const attPct  = (attendanceStats.present / Math.max(1, attendanceStats.total)) * 100;
+const excPct  = (attendanceStats.excused / Math.max(1, attendanceStats.total)) * 100;
+const vFavorPct  = (voteStats.favor  / Math.max(1, voteStats.total)) * 100;
+const vContraPct = (voteStats.contra / Math.max(1, voteStats.total)) * 100;
+const formatPct = (num) => isNaN(num) ? '0.0' : Number(num).toFixed(1);
+
+// Utility for vote colors/labels
+const getVoteColor = (type) => {
+  if (type === 'a_favor')   return 'var(--color-favor)';
+  if (type === 'en_contra') return 'var(--color-contra)';
+  return 'var(--color-ausente)';
+};
+const getVoteLabel = (type) => {
+  if (type === 'a_favor')   return 'A Favor';
+  if (type === 'en_contra') return 'En Contra';
+  return 'Ausente';
+};
+
+// Heatmap structure grouped by year then month
+// { year: { month: [{ status, day, label }] } }
+const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const heatmapData = {};
+for (const a of allAttendance) {
+  const d = new Date(a.start_date);
+  const year = d.getFullYear();
+  const month = d.getMonth(); // 0-indexed
+  if (!heatmapData[year]) heatmapData[year] = {};
+  if (!heatmapData[year][month]) heatmapData[year][month] = [];
+  heatmapData[year][month].push({
+    status: a.status,
+    label: `${d.toLocaleDateString('es-GT', { day:'numeric', month:'long', year:'numeric' })} — Sesión ${a.session_number}`
+  });
+}
+const heatmapYears = Object.keys(heatmapData).sort();
+---
+
+<Layout title={`${congressman.first_name} ${congressman.last_name}`}>
+  <div class="profile-header glass-panel">
+    <div class="profile-photo">
+      <img src={`/congressmen/${congressman.id}.jpg`} alt={congressman.first_name} loading="eager" />
+    </div>
+    <div class="profile-info">
+      <h1>{congressman.first_name} <br/> {congressman.last_name}</h1>
+      <div class="tags">
+        <a href={`/block/${congressman.block_id}`}       class="badge badge-block">{congressman.party_name}</a>
+        <a href={`/district/${congressman.district_id}`} class="badge badge-district">{congressman.district_name}</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ATTENDANCE SECTION ===== -->
+  <section class="section-card glass-panel">
+    <h2 class="section-title">Asistencia General</h2>
+
+    <div class="att-top">
+      <DonutChart 
+        id="attendance-chart" 
+        series={[attendanceStats.present, attendanceStats.excused, attendanceStats.absent]} 
+        labels={['Presente', 'Excusa', 'Ausente']}
+        colors={['#2ea043', '#58a6ff', '#f85149']}
+      />
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> Presente</div><strong>{formatPct(attPct)}%</strong></div>
+        <div class="legend-item"><div class="legend-label-group"><span style="background: var(--accent-color)"></span> Excusa</div><strong>{formatPct(excPct)}%</strong></div>
+        <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> Ausente</div><strong>{formatPct(100 - attPct - excPct)}%</strong></div>
+      </div>
+    </div>
+
+    <!-- IMPROVEMENT 3: Year-by-year breakdown -->
+    {attendanceByYear.length > 1 && (
+      <div class="yearly-breakdown">
+        <h3 class="sub-title">Asistencia por Año</h3>
+        <div class="year-bars">
+          {attendanceByYear.map(y => {
+            const presentPct  = y.total > 0 ? (y.present  / y.total) * 100 : 0;
+            const excusedPct  = y.total > 0 ? (y.excused  / y.total) * 100 : 0;
+            const absentPct   = y.total > 0 ? (y.absent   / y.total) * 100 : 0;
+            return (
+              <div class="year-row">
+                <span class="year-label">{y.year}</span>
+                <div class="year-bar-track" title={`Presente ${presentPct.toFixed(0)}% · Excusa ${excusedPct.toFixed(0)}% · Ausente ${absentPct.toFixed(0)}%`}>
+                  <div class="yb-segment yb-present" style={`width:${presentPct}%`}></div>
+                  <div class="yb-segment yb-excused" style={`width:${excusedPct}%`}></div>
+                  <div class="yb-segment yb-absent"  style={`width:${absentPct}%`}></div>
+                </div>
+                <span class="year-pct">{presentPct.toFixed(0)}%</span>
+              </div>
+            );
+          })}
+        </div>
+        <div class="year-legend">
+          <span class="yl-dot" style="background:var(--color-favor)"></span> Presente
+          <span class="yl-dot" style="background:var(--accent-color)"></span> Excusa
+          <span class="yl-dot" style="background:var(--color-contra)"></span> Ausente
+        </div>
+      </div>
+    )}
+
+    <!-- IMPROVEMENT 1: Session heatmap -->
+    <div class="heatmap-section">
+      <h3 class="sub-title">Historial de Sesiones</h3>
+      <div class="heatmap-legend">
+        <span class="hm-dot status-presente"></span> Presente
+        <span class="hm-dot status-licencia_excusa" style="margin-left:1rem"></span> Excusa
+        <span class="hm-dot status-ausente" style="margin-left:1rem"></span> Ausente
+      </div>
+      {heatmapYears.map(year => (
+        <div class="heatmap-year">
+          <div class="heatmap-year-label">{year}</div>
+          <div class="heatmap-months">
+            {Array.from({length: 12}, (_, monthIdx) => {
+              const sessions = heatmapData[year]?.[monthIdx] ?? [];
+              return (
+                <div class="heatmap-month">
+                  <div class="heatmap-month-name">{MONTH_NAMES[monthIdx]}</div>
+                  <div class="heatmap-dots">
+                    {sessions.map(s => (
+                      <div class={`hm-dot status-${s.status}`} title={s.label}></div>
+                    ))}
+                    {sessions.length === 0 && <div class="hm-dot hm-empty"></div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <!-- ===== VOTING SECTION ===== -->
+  <section class="section-card glass-panel">
+    <h2 class="section-title">Tendencia de Votación</h2>
+
+    <div class="att-top">
+      <DonutChart 
+        id="vote-chart" 
+        series={[voteStats.favor, voteStats.contra, voteStats.absent]} 
+        labels={['A Favor', 'En Contra', 'Ausente']}
+        colors={['#2ea043', '#f85149', '#8b949e']}
+      />
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> A Favor</div><strong>{formatPct(vFavorPct)}%</strong></div>
+        <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> En Contra</div><strong>{formatPct(vContraPct)}%</strong></div>
+        <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-ausente)"></span> Ausente</div><strong>{formatPct(100 - vFavorPct - vContraPct)}%</strong></div>
+      </div>
+    </div>
+
+    <!-- IMPROVEMENT 2 & 4: All votes with search and outcome context -->
+    <div class="votes-section">
+      <div class="votes-header">
+        <h3 class="sub-title">Historial de Votaciones <span class="vote-count-badge">{allVotes.length}</span></h3>
+        <input type="text" id="voteSearch" class="vote-search" placeholder="Buscar por tema..." />
+      </div>
+      <div class="vote-list-scroll" id="voteList">
+        {allVotes.map(v => {
+          const isApproved = v.total_favor > v.total_contra;
+          const outcomeLabel = isApproved ? 'Aprobado' : 'Rechazado';
+          const outcomeColor = isApproved ? 'var(--color-favor)' : 'var(--color-contra)';
+
+          // Did this congresistas vote with the winning side?
+          let withMajority = false;
+          if (v.vote_type === 'a_favor'   && isApproved)  withMajority = true;
+          if (v.vote_type === 'en_contra' && !isApproved) withMajority = true;
+
+          const voteColor = getVoteColor(v.vote_type);
+          const voteLabel = getVoteLabel(v.vote_type);
+          return (
+            <a
+              href={`/votaciones/${v.voting_id}`}
+              class="vote-row"
+              data-subject={v.subject.toLowerCase()}
+            >
+              <div class="vote-row-left">
+                {/* My vote dot */}
+                <div class="vote-type-pill" style={`background:${voteColor}22; border-color:${voteColor}; color:${voteColor}`}>
+                  {voteLabel}
+                </div>
+              </div>
+              <div class="vote-row-center">
+                <span class="vote-subject-text">{v.subject}</span>
+                <span class="vote-date text-muted">{new Date(v.start_date).toLocaleDateString('es-GT', {year:'numeric', month:'short', day:'numeric'})}</span>
+              </div>
+              <div class="vote-row-right">
+                {/* IMPROVEMENT 4: outcome badge */}
+                <span class="outcome-mini" style={`color:${outcomeColor}; border-color:${outcomeColor}; background:${outcomeColor}22`}>
+                  {outcomeLabel}
+                </span>
+                {/* With or against majority */}
+                {v.vote_type !== 'ausente' && (
+                  <span class={`majority-tag ${withMajority ? 'with-majority' : 'against-majority'}`}
+                    title={withMajority ? 'Votó con la mayoría' : 'Votó contra la mayoría'}>
+                    {withMajority ? '= mayoría' : '≠ mayoría'}
+                  </span>
+                )}
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  const voteSearch = document.getElementById('voteSearch') as HTMLInputElement;
+  const voteRows   = document.querySelectorAll<HTMLElement>('.vote-row');
+
+  voteSearch?.addEventListener('input', () => {
+    const q = voteSearch.value.toLowerCase();
+    voteRows.forEach(row => {
+      row.style.display = (row.dataset.subject ?? '').includes(q) ? 'flex' : 'none';
+    });
+  });
+</script>
+
+<style>
+  /* ---- Profile header ---- */
+  .profile-header {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    margin-bottom: 2rem;
+    padding: 2rem;
+  }
+  .profile-photo {
+    width: 150px; height: 150px;
+    border-radius: 50%; overflow: hidden;
+    border: 4px solid var(--border-color);
+    background: var(--bg-tertiary); flex-shrink: 0;
+  }
+  .profile-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .placeholder-img { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:3rem; }
+  .profile-info h1 { font-size: 2.5rem; margin-bottom: 1rem; line-height: 1.1; }
+  .tags { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .badge { text-decoration: none; font-size: 0.9rem; padding: 0.4em 1em; }
+  .badge-block    { background: rgba(88,166,255,0.15); color: var(--accent-color); border-color: rgba(88,166,255,0.3); }
+  .badge-district { background: rgba(139,148,158,0.15); border-color: rgba(139,148,158,0.3); }
+
+  /* ---- Section cards ---- */
+  .section-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+    margin-bottom: 2rem;
+  }
+  .section-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .sub-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* ---- Donut + legend row ---- */
+  .att-top { display: flex; align-items: center; gap: 2rem; }
+  .chart-legend { display: flex; flex-direction: column; gap: 0.75rem; flex-grow: 1; }
+  .legend-item {
+    font-size: 0.95rem; display: flex; align-items: center;
+    justify-content: space-between; gap: 1rem;
+    padding: 0.6rem 1rem; background: var(--bg-tertiary);
+    border-radius: 8px; border: 1px solid var(--border-color);
+  }
+  .legend-label-group { display: flex; align-items: center; gap: 0.75rem; }
+  .legend-item span { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+  /* ---- IMPROVEMENT 3: Year bars ---- */
+  .yearly-breakdown { padding-top: 1rem; border-top: 1px solid var(--border-color); }
+  .year-bars { display: flex; flex-direction: column; gap: 0.6rem; }
+  .year-row {
+    display: flex; align-items: center; gap: 0.75rem;
+  }
+  .year-label { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); min-width: 36px; }
+  .year-bar-track {
+    flex: 1; height: 12px; border-radius: 6px;
+    background: var(--bg-tertiary); overflow: hidden;
+    display: flex;
+  }
+  .yb-segment { height: 100%; transition: width 0.4s ease; }
+  .yb-present { background: var(--color-favor); }
+  .yb-excused { background: var(--accent-color); }
+  .yb-absent  { background: var(--color-contra); }
+  .year-pct { font-size: 0.78rem; font-weight: 700; color: var(--color-favor); min-width: 34px; text-align: right; }
+  .year-legend {
+    display: flex; align-items: center; gap: 0.4rem;
+    font-size: 0.78rem; color: var(--text-muted); margin-top: 0.5rem;
+  }
+  .yl-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  /* ---- IMPROVEMENT 1: Session heatmap ---- */
+  .heatmap-section { padding-top: 1rem; border-top: 1px solid var(--border-color); }
+  .heatmap-legend {
+    display: flex; align-items: center; gap: 0.4rem;
+    font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.75rem; flex-wrap: wrap;
+  }
+  .heatmap-year { margin-bottom: 1rem; }
+  .heatmap-year-label { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.4rem; }
+  .heatmap-months {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 0.25rem;
+  }
+  .heatmap-month { display: flex; flex-direction: column; gap: 0.2rem; }
+  .heatmap-month-name { font-size: 0.6rem; color: var(--text-muted); text-align: center; }
+  .heatmap-dots { display: flex; flex-direction: column; gap: 0.2rem; align-items: center; }
+
+  /* shared dot style for heatmap and legend */
+  .hm-dot {
+    width: 14px; height: 14px; border-radius: 3px;
+    cursor: help; flex-shrink: 0;
+  }
+  .hm-empty { background: var(--bg-tertiary); opacity: 0.3; }
+  .status-presente      { background: rgba(46,160,67,0.85);  border: 1px solid var(--color-favor); }
+  .status-ausente       { background: rgba(248,81,73,0.85);  border: 1px solid var(--color-contra); }
+  .status-licencia_excusa { background: rgba(88,166,255,0.7); border: 1px solid var(--accent-color); }
+
+  /* ---- IMPROVEMENT 2 & 4: All votes ---- */
+  .votes-section { padding-top: 1rem; border-top: 1px solid var(--border-color); }
+  .votes-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
+  }
+  .vote-count-badge {
+    background: var(--bg-tertiary); color: var(--text-muted);
+    font-size: 0.75rem; font-weight: 600;
+    padding: 0.15em 0.6em; border-radius: 999px;
+    border: 1px solid var(--border-color);
+  }
+  .vote-search {
+    padding: 0.55rem 1rem; border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary); color: var(--text-main);
+    font-family: inherit; font-size: 0.9rem;
+    min-width: 220px; outline: none;
+    transition: border-color var(--transition-fast);
+  }
+  .vote-search:focus { border-color: var(--accent-color); }
+
+  .vote-list-scroll {
+    display: flex; flex-direction: column; gap: 0.5rem;
+    max-height: 480px; overflow-y: auto;
+    padding-right: 0.25rem;
+  }
+  .vote-list-scroll::-webkit-scrollbar { width: 5px; }
+  .vote-list-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+
+  .vote-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.6rem 0.75rem; border-radius: 8px;
+    background: var(--bg-secondary); border: 1px solid var(--border-color);
+    color: inherit; transition: border-color var(--transition-fast);
+    text-decoration: none;
+  }
+  .vote-row:hover { border-color: var(--accent-color); }
+  .vote-row-left  { flex-shrink: 0; }
+  .vote-row-center { flex: 1; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+  .vote-row-right { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+
+  .vote-type-pill {
+    font-size: 0.72rem; font-weight: 700;
+    padding: 0.25em 0.7em; border-radius: 999px;
+    border: 1px solid; white-space: nowrap;
+  }
+  .vote-subject-text {
+    font-size: 0.88rem; line-height: 1.35; color: var(--text-light);
+    overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .vote-date { font-size: 0.75rem; color: var(--text-muted); }
+
+  .outcome-mini {
+    font-size: 0.68rem; font-weight: 700;
+    padding: 0.2em 0.6em; border-radius: 999px;
+    border: 1px solid; white-space: nowrap;
+  }
+  .majority-tag {
+    font-size: 0.65rem; font-weight: 600;
+    padding: 0.2em 0.55em; border-radius: 999px;
+    white-space: nowrap;
+  }
+  .with-majority    { background: rgba(46,160,67,0.12);  color: var(--color-favor);  border: 1px solid rgba(46,160,67,0.3); }
+  .against-majority { background: rgba(248,81,73,0.12); color: var(--color-contra); border: 1px solid rgba(248,81,73,0.3); }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 768px) {
+    .profile-header { flex-direction: column; text-align: center; padding: 1.25rem; gap: 1.25rem; }
+    .profile-photo { width: 100px; height: 100px; }
+    .profile-info h1 { font-size: 1.5rem; }
+    .tags { justify-content: center; }
+    .att-top { flex-direction: column; gap: 1rem; }
+    .heatmap-months { grid-template-columns: repeat(6, 1fr); }
+    .vote-row { flex-wrap: wrap; }
+    .vote-row-right { width: 100%; justify-content: flex-start; }
+    .vote-search { min-width: 0; width: 100%; }
+    .votes-header { flex-direction: column; align-items: flex-start; }
+  }
+</style>
