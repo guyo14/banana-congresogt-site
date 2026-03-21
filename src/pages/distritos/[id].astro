@@ -24,39 +24,23 @@ const members = db.prepare(`
   ORDER BY c.first_name, c.last_name
 `).all(id);
 
-// Fetch Aggregated Attendance
-const attendanceStats = db.prepare(`
-  SELECT 
-    COUNT(*) as total,
-    SUM(CASE WHEN a.status = 'presente' THEN 1 ELSE 0 END) as present,
-    SUM(CASE WHEN a.status = 'ausente' THEN 1 ELSE 0 END) as absent,
-    SUM(CASE WHEN a.status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
-  FROM attendance a
-  JOIN congressmen c ON a.congressman_id = c.id
-  WHERE c.district_id = ?
-`).get(id);
+// Fetch Aggregated Stats
+const totalStats = db.prepare(`
+  SELECT * FROM district_stats WHERE id = ? AND period = 'total'
+`).get(id) || {
+  attendance_present: 0, attendance_absent: 0, attendance_excused: 0,
+  votes_favor: 0, votes_contra: 0, votes_absent: 0, rice_index: 0
+};
 
-// Fetch Aggregated Voting Tendencias
-const voteStats = db.prepare(`
-  SELECT 
-    COUNT(*) as total,
-    SUM(CASE WHEN v.vote_type = 'a_favor' THEN 1 ELSE 0 END) as favor,
-    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) as contra,
-    SUM(CASE WHEN v.vote_type = 'ausente' THEN 1 ELSE 0 END) as absent
-  FROM votes v
-  JOIN congressmen c ON v.congressman_id = c.id
-  WHERE c.district_id = ?
-`).get(id);
+const attTotal = totalStats.attendance_present + totalStats.attendance_absent + totalStats.attendance_excused;
+const attPresent = totalStats.attendance_present;
+const attExcused = totalStats.attendance_excused;
+const attAbsent = totalStats.attendance_absent;
 
-const attTotal = attendanceStats.total || 0;
-const attPresent = attendanceStats.present || 0;
-const attExcused = attendanceStats.excused || 0;
-const attAbsent = attendanceStats.absent || 0;
-
-const voteTotal = voteStats.total || 0;
-const voteFavor = voteStats.favor || 0;
-const voteContra = voteStats.contra || 0;
-const voteAbsent = voteStats.absent || 0;
+const voteTotal = totalStats.votes_favor + totalStats.votes_contra + totalStats.votes_absent;
+const voteFavor = totalStats.votes_favor;
+const voteContra = totalStats.votes_contra;
+const voteAbsent = totalStats.votes_absent;
 
 const attPct = attTotal > 0 ? (attPresent / attTotal) * 100 : 0;
 const excPct = attTotal > 0 ? (attExcused / attTotal) * 100 : 0;

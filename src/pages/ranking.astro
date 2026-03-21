@@ -19,7 +19,7 @@ const congressmen = db.prepare(`
     SELECT
       congressman_id,
       ROUND(
-        100.0 * SUM(CASE WHEN status = 'presente' THEN 1 ELSE 0 END)
+        100.0 * SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END)
         / COUNT(*)
       , 1) AS att_pct
     FROM attendance
@@ -29,7 +29,7 @@ const congressmen = db.prepare(`
     SELECT
       congressman_id,
       ROUND(
-        100.0 * SUM(CASE WHEN vote_type = 'a_favor' THEN 1 ELSE 0 END)
+        100.0 * SUM(CASE WHEN vote_type = 'in_favor' THEN 1 ELSE 0 END)
         / COUNT(*)
       , 1) AS favor_pct
     FROM votes

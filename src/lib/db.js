@@ -67,6 +67,74 @@ CREATE TABLE IF NOT EXISTS attendance (
     status TEXT NOT NULL,
     PRIMARY KEY (session_id, congressman_id)
 );
+
+CREATE TABLE IF NOT EXISTS votation_aggregated_stats (
+    voting_id INTEGER NOT NULL REFERENCES voting(id) ON DELETE CASCADE,
+    total_favor INTEGER NOT NULL,
+    total_contra INTEGER NOT NULL,
+    total_absent INTEGER NOT NULL,
+    is_approved BOOLEAN NOT NULL,
+    PRIMARY KEY (voting_id)
+);
+
+CREATE TABLE IF NOT EXISTS congressman_stats (
+    id INTEGER NOT NULL REFERENCES congressmen(id) ON DELETE CASCADE,
+    period TEXT NOT NULL,
+    attendance_present INTEGER NOT NULL,
+    attendance_absent INTEGER NOT NULL,
+    attendance_excused INTEGER NOT NULL,
+    votes_favor INTEGER NOT NULL,
+    votes_contra INTEGER NOT NULL,
+    votes_absent INTEGER NOT NULL,
+    votes_with_majority INTEGER NOT NULL,
+    PRIMARY KEY (id, period)
+);
+
+CREATE TABLE IF NOT EXISTS party_stats (
+    id INTEGER NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
+    period TEXT NOT NULL,
+    attendance_present INTEGER NOT NULL,
+    attendance_absent INTEGER NOT NULL,
+    attendance_excused INTEGER NOT NULL,
+    votes_favor INTEGER NOT NULL,
+    votes_contra INTEGER NOT NULL,
+    votes_absent INTEGER NOT NULL,
+    rice_index REAL NOT NULL,
+    PRIMARY KEY (id, period)
+);
+
+CREATE TABLE IF NOT EXISTS district_stats (
+    id INTEGER NOT NULL REFERENCES districts(id) ON DELETE CASCADE,
+    period TEXT NOT NULL,
+    attendance_present INTEGER NOT NULL,
+    attendance_absent INTEGER NOT NULL,
+    attendance_excused INTEGER NOT NULL,
+    votes_favor INTEGER NOT NULL,
+    votes_contra INTEGER NOT NULL,
+    votes_absent INTEGER NOT NULL,
+    rice_index REAL NOT NULL,
+    PRIMARY KEY (id, period)
+);
+
+CREATE TABLE IF NOT EXISTS block_stats (
+    id TEXT NOT NULL,
+    period TEXT NOT NULL,
+    attendance_present INTEGER NOT NULL,
+    attendance_absent INTEGER NOT NULL,
+    attendance_excused INTEGER NOT NULL,
+    votes_favor INTEGER NOT NULL,
+    votes_contra INTEGER NOT NULL,
+    votes_absent INTEGER NOT NULL,
+    rice_index REAL NOT NULL,
+    PRIMARY KEY (id, period)
+);
+
+CREATE TABLE IF NOT EXISTS congressman_similarity (
+    congressman_id INTEGER NOT NULL REFERENCES congressmen(id) ON DELETE CASCADE,
+    congressman_2_id INTEGER NOT NULL REFERENCES congressmen(id) ON DELETE CASCADE,
+    similarity_score REAL NOT NULL,
+    PRIMARY KEY (congressman_id, congressman_2_id)
+);
 `);
 
 /**
@@ -102,6 +170,14 @@ function ingestData() {
     const voting = loadCSV('voting.csv');
     const votes = loadCSV('votes.csv');
     const attendance = loadCSV('attendance.csv');
+    
+    // Derived pre-aggregated data
+    const v_stats = loadCSV('votation_aggregated_stats.csv');
+    const c_stats = loadCSV('congressman_stats.csv');
+    const p_stats = loadCSV('party_stats.csv');
+    const d_stats = loadCSV('district_stats.csv');
+    const b_stats = loadCSV('block_stats.csv');
+    const c_sim = loadCSV('congressman_similarity.csv');
 
     // Prepare insert statements
     const insertBlock = db.prepare('INSERT OR IGNORE INTO blocks (id, name, short_name) VALUES (@id, @name, @short_name)');
@@ -112,6 +188,14 @@ function ingestData() {
     const insertVoting = db.prepare('INSERT OR IGNORE INTO voting (id, session_id, subject, start_date) VALUES (@id, @session_id, @subject, @start_date)');
     const insertVote = db.prepare('INSERT OR IGNORE INTO votes (voting_id, congressman_id, vote_type, attendance_status) VALUES (@voting_id, @congressman_id, @vote_type, @attendance_status)');
     const insertAttendance = db.prepare('INSERT OR IGNORE INTO attendance (session_id, congressman_id, status) VALUES (@session_id, @congressman_id, @status)');
+
+    // Prep statements for aggregated data
+    const insertVStats = db.prepare('INSERT OR IGNORE INTO votation_aggregated_stats (voting_id, total_favor, total_contra, total_absent, is_approved) VALUES (@voting_id, @total_favor, @total_contra, @total_absent, @is_approved)');
+    const insertCStats = db.prepare('INSERT OR IGNORE INTO congressman_stats (id, period, attendance_present, attendance_absent, attendance_excused, votes_favor, votes_contra, votes_absent, votes_with_majority) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_excused, @votes_favor, @votes_contra, @votes_absent, @votes_with_majority)');
+    const insertPStats = db.prepare('INSERT OR IGNORE INTO party_stats (id, period, attendance_present, attendance_absent, attendance_excused, votes_favor, votes_contra, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_excused, @votes_favor, @votes_contra, @votes_absent, @rice_index)');
+    const insertDStats = db.prepare('INSERT OR IGNORE INTO district_stats (id, period, attendance_present, attendance_absent, attendance_excused, votes_favor, votes_contra, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_excused, @votes_favor, @votes_contra, @votes_absent, @rice_index)');
+    const insertBStats = db.prepare('INSERT OR IGNORE INTO block_stats (id, period, attendance_present, attendance_absent, attendance_excused, votes_favor, votes_contra, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_excused, @votes_favor, @votes_contra, @votes_absent, @rice_index)');
+    const insertCSim = db.prepare('INSERT OR IGNORE INTO congressman_similarity (congressman_id, congressman_2_id, similarity_score) VALUES (@congressman_id, @congressman_2_id, @similarity_score)');
 
     // Execute in transactions for speed
     const insertMany = (stmt, items) => {
@@ -135,6 +219,13 @@ function ingestData() {
     insertMany(insertVote, votes);
     insertMany(insertAttendance, attendance);
 
+    insertMany(insertVStats, v_stats);
+    insertMany(insertCStats, c_stats);
+    insertMany(insertPStats, p_stats);
+    insertMany(insertDStats, d_stats);
+    insertMany(insertBStats, b_stats);
+    insertMany(insertCSim, c_sim);
+
     console.log('Data ingestion complete!');
 }
 
@@ -142,3 +233,6 @@ function ingestData() {
 ingestData();
 
 export default db;
+export const CONGRESSMEN_STATUS = { ACTIVE: 'active', INACTIVE: 'inactive' };
+export const ATTENDANCE_STATUS = { PRESENT: 'present', ABSENT: 'absent', EXCUSED: 'license'};
+export const VOTE_TYPE = { IN_FAVOR: 'in_favor', AGAINST: 'against', ABSENT: 'absent' };

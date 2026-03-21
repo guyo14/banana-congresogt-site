@@ -13,13 +13,13 @@ const blocks = db.prepare(`
 
     -- Attendance rate across all members of this party
     ROUND(
-      100.0 * SUM(CASE WHEN a.status = 'presente' THEN 1 ELSE 0 END)
+      100.0 * SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END)
             / MAX(COUNT(a.session_id), 1)
     , 1) AS attendance_percent,
 
     -- Votes-in-favor rate across all votes cast by party members
     ROUND(
-      100.0 * SUM(CASE WHEN v.vote_type = 'a_favor' THEN 1 ELSE 0 END)
+      100.0 * SUM(CASE WHEN v.vote_type = 'in_favor' THEN 1 ELSE 0 END)
             / MAX(COUNT(v.voting_id), 1)
     , 1) AS in_favor_percent
 

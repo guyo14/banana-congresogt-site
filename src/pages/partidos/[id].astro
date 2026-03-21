@@ -20,16 +20,13 @@ const members = db.prepare(`
   SELECT
     c.id, c.first_name, c.last_name,
     d.name as district_name,
-    ROUND(
-      100.0 * SUM(CASE WHEN a.status = 'presente' THEN 1 ELSE 0 END)
-            / MAX(COUNT(a.session_id), 1)
-    , 1) AS att_pct
+    cs.attendance_present,
+    (cs.attendance_present + cs.attendance_absent + cs.attendance_excused) as total_attendance
   FROM congressmen c
   LEFT JOIN districts  d ON d.id = c.district_id
-  LEFT JOIN attendance a ON a.congressman_id = c.id
+  LEFT JOIN congressman_stats cs ON cs.id = c.id AND cs.period = 'total'
   WHERE c.party_id = ?
-  GROUP BY c.id, c.first_name, c.last_name
-  ORDER BY att_pct DESC, c.first_name, c.last_name
+  ORDER BY (cs.attendance_present * 100.0 / NULLIF(cs.attendance_present + cs.attendance_absent + cs.attendance_excused, 0)) DESC, c.first_name, c.last_name
 `).all(id);
 
 // IMPROVEMENT 2: Last 10 votations this partidos participated in, with partidos stance
@@ -42,15 +39,14 @@ const partyVoting = db.prepare(`
     SUM(CASE WHEN v.vote_type = 'a_favor'   THEN 1 ELSE 0 END) AS party_favor,
     SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) AS party_contra,
     SUM(CASE WHEN v.vote_type = 'ausente'   THEN 1 ELSE 0 END) AS party_absent,
-    -- overall votation outcome (all congressmen, not just partidos)
-    SUM(CASE WHEN v2.vote_type = 'a_favor'   THEN 1 ELSE 0 END) OVER (PARTITION BY vot.id) AS total_favor,
-    SUM(CASE WHEN v2.vote_type = 'en_contra' THEN 1 ELSE 0 END) OVER (PARTITION BY vot.id) AS total_contra
+    vas.total_favor,
+    vas.total_contra
   FROM votes v
   JOIN congressmen c  ON c.id = v.congressman_id AND c.party_id = ?
   JOIN voting vot  ON vot.id = v.voting_id
   JOIN sessions  s    ON s.id = vot.session_id
-  JOIN votes v2       ON v2.voting_id = vot.id
-  GROUP BY vot.id, vot.start_date
+  JOIN votation_aggregated_stats vas ON vas.voting_id = vot.id
+  GROUP BY vot.id, vot.subject, vot.start_date, s.session_number, vas.total_favor, vas.total_contra
   ORDER BY vot.start_date DESC
   LIMIT 10
 `).all(id);
@@ -58,40 +54,24 @@ const partyVoting = db.prepare(`
 // Color helper for attendance bar
 const attColor = (pct) => pct >= 80 ? 'var(--color-favor)' : pct >= 50 ? '#f0a500' : 'var(--color-contra)';
 
-// Fetch Aggregated Attendance
-const attendanceStats = db.prepare(`
-  SELECT 
-    COUNT(*) as total,
-    SUM(CASE WHEN a.status = 'presente' THEN 1 ELSE 0 END) as present,
-    SUM(CASE WHEN a.status = 'ausente' THEN 1 ELSE 0 END) as absent,
-    SUM(CASE WHEN a.status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
-  FROM attendance a
-  JOIN congressmen c ON a.congressman_id = c.id
-  WHERE c.party_id = ?
-`).get(id);
+// Fetch Aggregated Stats
+const totalStats = db.prepare(`
+  SELECT * FROM party_stats WHERE id = ? AND period = 'total'
+`).get(id) || {
+  attendance_present: 0, attendance_absent: 0, attendance_excused: 0,
+  votes_favor: 0, votes_contra: 0, votes_absent: 0, rice_index: 0
+};
 
-// Fetch Aggregated Voting Tendencies
-const voteStats = db.prepare(`
-  SELECT 
-    COUNT(*) as total,
-    SUM(CASE WHEN v.vote_type = 'a_favor' THEN 1 ELSE 0 END) as favor,
-    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) as contra,
-    SUM(CASE WHEN v.vote_type = 'ausente' THEN 1 ELSE 0 END) as absent
-  FROM votes v
-  JOIN congressmen c ON v.congressman_id = c.id
-  WHERE c.party_id = ?
-`).get(id);
+// Ensure values are numbers and handle possible nulls
+const attTotal = totalStats.attendance_present + totalStats.attendance_absent + totalStats.attendance_excused;
+const attPresent = totalStats.attendance_present;
+const attExcused = totalStats.attendance_excused;
+const attAbsent = totalStats.attendance_absent;
 
-// Ensure values are numbers and handle possible nulls (if no votes/attendance yet)
-const attTotal = attendanceStats.total || 0;
-const attPresent = attendanceStats.present || 0;
-const attExcused = attendanceStats.excused || 0;
-const attAbsent = attendanceStats.absent || 0;
-
-const voteTotal = voteStats.total || 0;
-const voteFavor = voteStats.favor || 0;
-const voteContra = voteStats.contra || 0;
-const voteAbsent = voteStats.absent || 0;
+const voteTotal = totalStats.votes_favor + totalStats.votes_contra + totalStats.votes_absent;
+const voteFavor = totalStats.votes_favor;
+const voteContra = totalStats.votes_contra;
+const voteAbsent = totalStats.votes_absent;
 
 const attPct = attTotal > 0 ? (attPresent / attTotal) * 100 : 0;
 const excPct = attTotal > 0 ? (attExcused / attTotal) * 100 : 0;
@@ -150,7 +130,7 @@ const formatPct = (num) => num.toFixed(1);
     <h2>Integrantes ({members.length}) <span class="sort-note">ordenados por mayor asistencia</span></h2>
     <div class="grid-cards">
       {members.map(c => {
-        const pct   = c.att_pct ?? 0;
+        const pct   = c.total_attendance > 0 ? (c.attendance_present / c.total_attendance * 100).toFixed(1) : 0;
         const color = attColor(pct);
         return (
           <a href={`/congresistas/${c.id}`} class="member-card glass-panel">

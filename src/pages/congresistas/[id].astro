@@ -21,16 +21,14 @@ const congressman = db.prepare(`
   WHERE c.id = ?
 `).get(id);
 
-// Fetch Overall Attendance
-const attendanceStats = db.prepare(`
-  SELECT 
-    COUNT(*) as total,
-    SUM(CASE WHEN status = 'presente' THEN 1 ELSE 0 END) as present,
-    SUM(CASE WHEN status = 'ausente' THEN 1 ELSE 0 END) as absent,
-    SUM(CASE WHEN status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
-  FROM attendance
-  WHERE congressman_id = ?
-`).get(id);
+// Fetch Overall Stats (Total Period)
+const totalStats = db.prepare(`
+  SELECT * FROM congressman_stats 
+  WHERE id = ? AND period = 'total'
+`).get(id) || {
+  attendance_present: 0, attendance_absent: 0, attendance_excused: 0,
+  votes_favor: 0, votes_contra: 0, votes_absent: 0, votes_with_majority: 0
+};
 
 // Fetch All Sessions Attendance for Heatmap
 const allAttendance = db.prepare(`
@@ -41,47 +39,12 @@ const allAttendance = db.prepare(`
   ORDER BY s.start_date
 `).all(id);
 
-// Attendance breakdown by year
-const attendanceByYear = db.prepare(`
-  SELECT 
-    strftime('%Y', s.start_date) AS year,
-    COUNT(*) as total,
-    SUM(CASE WHEN a.status = 'presente'        THEN 1 ELSE 0 END) as present,
-    SUM(CASE WHEN a.status = 'ausente'         THEN 1 ELSE 0 END) as absent,
-    SUM(CASE WHEN a.status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
-  FROM attendance a
-  JOIN sessions s ON a.session_id = s.id
-  WHERE a.congressman_id = ?
-  GROUP BY year
-  ORDER BY year
+// Stats breakdown by year
+const statsByYear = db.prepare(`
+  SELECT * FROM congressman_stats 
+  WHERE id = ? AND period != 'total'
+  ORDER BY period
 `).all(id);
-
-// Votes breakdown by year
-const voteStats = db.prepare(`
-  SELECT
-    COUNT(*) as total,
-    SUM(CASE WHEN v.vote_type = 'a_favor' THEN 1 ELSE 0 END) as favor,
-    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) as contra,
-    SUM(CASE WHEN v.vote_type = 'ausente' THEN 1 ELSE 0 END) as absent
-  FROM votes v
-  WHERE congressman_id = ?
-`).get(id);
-
-// Votes breakdown by year
-const voteByYear = db.prepare(`
-  SELECT
-    strftime('%Y', s.start_date) AS year,
-    COUNT(*) as total,
-    SUM(CASE WHEN v.vote_type = 'a_favor' THEN 1 ELSE 0 END) as favor,
-    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) as contra,
-    SUM(CASE WHEN v.vote_type = 'ausente' THEN 1 ELSE 0 END) as absent
-  FROM votes v
-  JOIN voting vot ON v.voting_id = vot.id
-  JOIN sessions s ON vot.session_id = s.id
-  WHERE congressman_id = ?
-  GROUP BY year
-  ORDER BY year
-`).get(id);
 
 // All votaciones with outcome context (no LIMIT)
 const allVotes = db.prepare(`
@@ -90,22 +53,23 @@ const allVotes = db.prepare(`
     vot.subject,
     vot.start_date,
     vot.id as voting_id,
-    -- compute outcome of the votaciones itself
-    SUM(CASE WHEN v2.vote_type = 'a_favor'  THEN 1 ELSE 0 END) OVER (PARTITION BY vot.id) AS total_favor,
-    SUM(CASE WHEN v2.vote_type = 'en_contra' THEN 1 ELSE 0 END) OVER (PARTITION BY vot.id) AS total_contra
+    vas.total_favor,
+    vas.total_contra
   FROM votes v
   JOIN voting vot ON v.voting_id = vot.id
-  JOIN votes v2     ON v2.voting_id = vot.id
+  JOIN votation_aggregated_stats vas ON vot.id = vas.voting_id
   WHERE v.congressman_id = ?
-  GROUP BY v.voting_id, vot.start_date
   ORDER BY vot.start_date DESC
 `).all(id);
 
 // Calculate percentages
-const attPct  = (attendanceStats.present / Math.max(1, attendanceStats.total)) * 100;
-const excPct  = (attendanceStats.excused / Math.max(1, attendanceStats.total)) * 100;
-const vFavorPct  = (voteStats.favor  / Math.max(1, voteStats.total)) * 100;
-const vContraPct = (voteStats.contra / Math.max(1, voteStats.total)) * 100;
+const attTotal = totalStats.attendance_present + totalStats.attendance_absent + totalStats.attendance_excused;
+const voteTotal = totalStats.votes_favor + totalStats.votes_contra + totalStats.votes_absent;
+
+const attPct  = attTotal > 0 ? (totalStats.attendance_present / attTotal) * 100 : 0;
+const excPct  = attTotal > 0 ? (totalStats.attendance_excused / attTotal) * 100 : 0;
+const vFavorPct  = voteTotal > 0 ? (totalStats.votes_favor  / voteTotal) * 100 : 0;
+const vContraPct = voteTotal > 0 ? (totalStats.votes_contra / voteTotal) * 100 : 0;
 const formatPct = (num) => isNaN(num) ? '0.0' : Number(num).toFixed(1);
 
 // Utility for vote colors/labels
@@ -159,7 +123,7 @@ const heatmapYears = Object.keys(heatmapData).sort();
     <div class="att-top">
       <DonutChart 
         id="attendance-chart" 
-        series={[attendanceStats.present, attendanceStats.excused, attendanceStats.absent]} 
+        series={[totalStats.attendance_present, totalStats.attendance_excused, totalStats.attendance_absent]} 
         labels={['Presente', 'Excusa', 'Ausente']}
         colors={['#2ea043', '#58a6ff', '#f85149']}
       />
@@ -171,17 +135,18 @@ const heatmapYears = Object.keys(heatmapData).sort();
     </div>
 
     <!-- IMPROVEMENT 3: Year-by-year breakdown -->
-    {attendanceByYear.length > 1 && (
+    {statsByYear.length > 1 && (
       <div class="yearly-breakdown">
         <h3 class="sub-title">Asistencia por Año</h3>
         <div class="year-bars">
-          {attendanceByYear.map(y => {
-            const presentPct  = y.total > 0 ? (y.present  / y.total) * 100 : 0;
-            const excusedPct  = y.total > 0 ? (y.excused  / y.total) * 100 : 0;
-            const absentPct   = y.total > 0 ? (y.absent   / y.total) * 100 : 0;
+          {statsByYear.map(y => {
+            const yTotal = y.attendance_present + y.attendance_absent + y.attendance_excused;
+            const presentPct  = yTotal > 0 ? (y.attendance_present  / yTotal) * 100 : 0;
+            const excusedPct  = yTotal > 0 ? (y.attendance_excused  / yTotal) * 100 : 0;
+            const absentPct   = yTotal > 0 ? (y.attendance_absent   / yTotal) * 100 : 0;
             return (
               <div class="year-row">
-                <span class="year-label">{y.year}</span>
+                <span class="year-label">{y.period}</span>
                 <div class="year-bar-track" title={`Presente ${presentPct.toFixed(0)}% · Excusa ${excusedPct.toFixed(0)}% · Ausente ${absentPct.toFixed(0)}%`}>
                   <div class="yb-segment yb-present" style={`width:${presentPct}%`}></div>
                   <div class="yb-segment yb-excused" style={`width:${excusedPct}%`}></div>
@@ -239,7 +204,7 @@ const heatmapYears = Object.keys(heatmapData).sort();
     <div class="att-top">
       <DonutChart 
         id="vote-chart" 
-        series={[voteStats.favor, voteStats.contra, voteStats.absent]} 
+        series={[totalStats.votes_favor, totalStats.votes_contra, totalStats.votes_absent]} 
         labels={['A Favor', 'En Contra', 'Ausente']}
         colors={['#2ea043', '#f85149', '#8b949e']}
       />

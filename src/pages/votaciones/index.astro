@@ -6,12 +6,12 @@ import db from '../../lib/db.js';
 const voting = db.prepare(`
   SELECT
     v.id, v.subject, v.start_date, s.session_number,
-    SUM(CASE WHEN votes.vote_type = 'a_favor'   THEN 1 ELSE 0 END) AS total_favor,
-    SUM(CASE WHEN votes.vote_type = 'en_contra' THEN 1 ELSE 0 END) AS total_contra
+    COALESCE(vas.total_favor, 0) AS total_favor,
+    COALESCE(vas.total_contra, 0) AS total_contra,
+    vas.is_approved
   FROM voting v
   JOIN sessions s ON v.session_id = s.id
-  LEFT JOIN votes ON votes.voting_id = v.id
-  GROUP BY v.id
+  LEFT JOIN votation_aggregated_stats vas ON vas.voting_id = v.id
   ORDER BY v.start_date DESC
 `).all();
 
@@ -48,7 +48,7 @@ const formatDate = (dateString) => {
   <div class="votation-list" id="votationList">
     {voting.map((v, index) => {
       const hasVotes    = (v.total_favor + v.total_contra) > 0;
-      const isApproved  = hasVotes && v.total_favor > v.total_contra;
+      const isApproved  = v.is_approved === 1 || v.is_approved === true;
       const outcome     = !hasVotes ? 'sin_votos' : isApproved ? 'aprobado' : 'rechazado';
       const badgeLabel  = !hasVotes ? 'Sin votos' : isApproved ? 'Aprobado' : 'Rechazado';
       const badgeColor  = !hasVotes ? 'var(--text-muted)'

@@ -7,7 +7,7 @@ const sessions = db.prepare(`
   SELECT 
     s.id, s.type, s.session_number, s.start_date,
     COUNT(a.congressman_id) as total,
-    SUM(CASE WHEN a.status = 'presente' THEN 1 ELSE 0 END) as presente,
+    SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as presente,
     SUM(CASE WHEN a.status = 'ausente' THEN 1 ELSE 0 END) as ausente
   FROM sessions s
   LEFT JOIN attendance a ON s.id = a.session_id

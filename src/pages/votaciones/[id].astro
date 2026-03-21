@@ -41,11 +41,15 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('es-GT', options);
 };
 
-// Calculate totals
-const totalVotes = votesList.length;
-const totalFavor = votesList.filter(v => v.vote_type === 'a_favor').length;
-const totalContra = votesList.filter(v => v.vote_type === 'en_contra').length;
-const totalAbsent = votesList.filter(v => v.vote_type === 'ausente').length;
+// Fetch totals from aggregated stats
+const vas = db.prepare('SELECT * FROM votation_aggregated_stats WHERE voting_id = ?').get(id) || {
+  total_favor: 0, total_contra: 0, total_absent: 0, is_approved: 0
+};
+
+const totalFavor = vas.total_favor;
+const totalContra = vas.total_contra;
+const totalAbsent = vas.total_absent;
+const totalVotes = totalFavor + totalContra + totalAbsent;
 
 const favorPct = totalVotes > 0 ? (totalFavor / totalVotes) * 100 : 0;
 const contraPct = totalVotes > 0 ? (totalContra / totalVotes) * 100 : 0;
@@ -59,8 +63,8 @@ votesList.forEach(v => {
     partyBreakdown[pname] = { favor: 0, contra: 0, absent: 0, total: 0, id: v.party_id };
   }
   partyBreakdown[pname].total++;
-  if (v.vote_type === 'a_favor') partyBreakdown[pname].favor++;
-  else if (v.vote_type === 'en_contra') partyBreakdown[pname].contra++;
+  if (v.vote_type === 'in_favor') partyBreakdown[pname].favor++;
+  else if (v.vote_type === 'against') partyBreakdown[pname].contra++;
   else partyBreakdown[pname].absent++;
 });
 
@@ -77,8 +81,8 @@ votesList.forEach(v => {
     districtBreakdown[dname] = { favor: 0, contra: 0, absent: 0, total: 0, id: v.district_id };
   }
   districtBreakdown[dname].total++;
-  if (v.vote_type === 'a_favor') districtBreakdown[dname].favor++;
-  else if (v.vote_type === 'en_contra') districtBreakdown[dname].contra++;
+  if (v.vote_type === 'in_favor') districtBreakdown[dname].favor++;
+  else if (v.vote_type === 'against') districtBreakdown[dname].contra++;
   else districtBreakdown[dname].absent++;
 });
 
@@ -89,16 +93,15 @@ const districtList = Object.entries(districtBreakdown)
 // Outcome logic
 let outcomeLabel = 'RECHAZADO';
 let outcomeColor = 'var(--color-contra)';
-// Typically, simple majority of those present (or total seats 160) - using simple heuristic favor > contra
-if (totalFavor > totalContra) {
+if (vas.is_approved === 1 || vas.is_approved === true) {
   outcomeLabel = 'APROBADO';
   outcomeColor = 'var(--color-favor)';
 }
 
 // Utility to render the dots for votes
 const getVoteColor = (type) => {
-  if (type === 'a_favor') return 'var(--color-favor)';
-  if (type === 'en_contra') return 'var(--color-contra)';
+  if (type === 'in_favor') return 'var(--color-favor)';
+  if (type === 'against') return 'var(--color-contra)';
   return 'var(--color-ausente)';
 };
 ---
@@ -139,9 +142,9 @@ const getVoteColor = (type) => {
         <div class="filter-group">
           <div class="vote-filters">
             <button class="vote-filter active" data-filter="all">Todos</button>
-            <button class="vote-filter" data-filter="a_favor">A Favor</button>
-            <button class="vote-filter" data-filter="en_contra">En Contra</button>
-            <button class="vote-filter" data-filter="ausente">Ausente</button>
+            <button class="vote-filter" data-filter="in_favor">A Favor</button>
+            <button class="vote-filter" data-filter="against">En Contra</button>
+            <button class="vote-filter" data-filter="absent">Ausente</button>
           </div>
           <input type="text" id="filterInput" placeholder="Buscar diputado..." />
         </div>

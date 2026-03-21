@@ -10,33 +10,30 @@ const dataset = db.prepare(`
     c.last_name,
     p.name  AS party_name,
     d.name  AS district_name,
-    COALESCE(att.att_pct,   0) AS att_pct,
-    COALESCE(att.exc_pct,   0) AS exc_pct,
-    COALESCE(vot.favor_pct, 0) AS favor_pct,
-    COALESCE(vot.contra_pct,0) AS contra_pct,
-    COALESCE(att.session_count, 0) AS sessions_attended,
-    COALESCE(vot.vote_count, 0)    AS total_votes
+    -- Attendance Percentage
+    CASE WHEN (cs.attendance_present + cs.attendance_absent + cs.attendance_excused) > 0 
+         THEN ROUND(100.0 * cs.attendance_present / (cs.attendance_present + cs.attendance_absent + cs.attendance_excused), 1)
+         ELSE 0 END AS att_pct,
+         
+    CASE WHEN (cs.attendance_present + cs.attendance_absent + cs.attendance_excused) > 0 
+         THEN ROUND(100.0 * cs.attendance_excused / (cs.attendance_present + cs.attendance_absent + cs.attendance_excused), 1)
+         ELSE 0 END AS exc_pct,
+         
+    -- Voting Percentage
+    CASE WHEN (cs.votes_favor + cs.votes_contra + cs.votes_absent) > 0 
+         THEN ROUND(100.0 * cs.votes_favor / (cs.votes_favor + cs.votes_contra + cs.votes_absent), 1)
+         ELSE 0 END AS favor_pct,
+         
+    CASE WHEN (cs.votes_favor + cs.votes_contra + cs.votes_absent) > 0 
+         THEN ROUND(100.0 * cs.votes_contra / (cs.votes_favor + cs.votes_contra + cs.votes_absent), 1)
+         ELSE 0 END AS contra_pct,
+         
+    COALESCE(cs.attendance_present + cs.attendance_excused, 0) AS sessions_attended,
+    COALESCE(cs.votes_favor + cs.votes_contra, 0) AS total_votes
   FROM congressmen c
   LEFT JOIN parties   p ON p.id = c.party_id
   LEFT JOIN districts d ON d.id = c.district_id
-  LEFT JOIN (
-    SELECT
-      congressman_id,
-      COUNT(*) AS session_count,
-      ROUND(100.0 * SUM(CASE WHEN status = 'presente'        THEN 1 ELSE 0 END) / COUNT(*), 1) AS att_pct,
-      ROUND(100.0 * SUM(CASE WHEN status = 'licencia_excusa' THEN 1 ELSE 0 END) / COUNT(*), 1) AS exc_pct
-    FROM attendance
-    GROUP BY congressman_id
-  ) att ON att.congressman_id = c.id
-  LEFT JOIN (
-    SELECT
-      congressman_id,
-      COUNT(*) AS vote_count,
-      ROUND(100.0 * SUM(CASE WHEN vote_type = 'a_favor'   THEN 1 ELSE 0 END) / COUNT(*), 1) AS favor_pct,
-      ROUND(100.0 * SUM(CASE WHEN vote_type = 'en_contra' THEN 1 ELSE 0 END) / COUNT(*), 1) AS contra_pct
-    FROM votes
-    GROUP BY congressman_id
-  ) vot ON vot.congressman_id = c.id
+  LEFT JOIN congressman_stats cs ON cs.id = c.id AND cs.period = 'total'
   ORDER BY c.first_name, c.last_name
 `).all();
 

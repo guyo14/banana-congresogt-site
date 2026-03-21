@@ -19,8 +19,8 @@ const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
 const voting = db.prepare(`
   SELECT
     vot.id, vot.subject, vot.start_date,
-    SUM(CASE WHEN v.vote_type = 'a_favor'   THEN 1 ELSE 0 END) AS total_favor,
-    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) AS total_contra
+    SUM(CASE WHEN v.vote_type = 'in_favor'   THEN 1 ELSE 0 END) AS total_favor,
+    SUM(CASE WHEN v.vote_type = 'against' THEN 1 ELSE 0 END) AS total_contra
   FROM voting vot
   LEFT JOIN votes v ON v.voting_id = vot.id
   WHERE vot.session_id = ?
@@ -32,9 +32,9 @@ const voting = db.prepare(`
 const attendanceStats = db.prepare(`
   SELECT 
     COUNT(congressman_id) as total,
-    SUM(CASE WHEN status = 'presente'        THEN 1 ELSE 0 END) as present,
-    SUM(CASE WHEN status = 'ausente'         THEN 1 ELSE 0 END) as absent,
-    SUM(CASE WHEN status = 'licencia_excusa' THEN 1 ELSE 0 END) as excused
+    SUM(CASE WHEN status = 'present'        THEN 1 ELSE 0 END) as present,
+    SUM(CASE WHEN status = 'absent'         THEN 1 ELSE 0 END) as absent,
+    SUM(CASE WHEN status = 'license' THEN 1 ELSE 0 END) as excused
   FROM attendance
   WHERE session_id = ?
 `).get(id);
@@ -48,7 +48,7 @@ const absentMembers = db.prepare(`
   FROM attendance a
   JOIN congressmen c ON c.id = a.congressman_id
   LEFT JOIN parties p ON p.id = c.party_id
-  WHERE a.session_id = ? AND a.status IN ('ausente', 'licencia_excusa')
+  WHERE a.session_id = ? AND a.status IN ('absent', 'license')
   ORDER BY a.status ASC, c.first_name, c.last_name
 `).all(id);
 
@@ -149,12 +149,12 @@ const formatPct = (num) => num.toFixed(1);
         {absentMembers.map(m => (
           <a
             href={`/congresistas/${m.id}`}
-            class={`absent-card glass-panel ${m.status === 'licencia_excusa' ? 'excused' : 'absent'}`}
-            title={`${m.first_name} ${m.last_name} — ${m.status === 'licencia_excusa' ? 'Excusa' : 'Ausente'}`}
+            class={`absent-card glass-panel ${m.status === 'license' ? 'excused' : 'absent'}`}
+            title={`${m.first_name} ${m.last_name} — ${m.status === 'license' ? 'Excusa' : 'Ausente'}`}
           >
             <div class="absent-photo">
               <img src={`/congressmen/${m.id}.jpg`} alt={m.first_name} loading="lazy" />
-              <span class={`status-dot ${m.status === 'licencia_excusa' ? 'dot-excused' : 'dot-ausente'}`}></span>
+              <span class={`status-dot ${m.status === 'license' ? 'dot-excused' : 'dot-ausente'}`}></span>
             </div>
             <div class="absent-info">
               <span class="absent-name">{m.first_name} {m.last_name}</span>
