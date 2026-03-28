@@ -92,8 +92,14 @@ const chartHeight = Math.max(dataList.length * 35 + 80, 200);
         tooltip: {
           theme: 'light',
           y: {
-            formatter: function (val) {
-              return val + " Votos"
+            formatter: function (val, opts) {
+              const dataPointIndex = opts?.dataPointIndex ?? -1;
+              const stackedSeries = opts?.w?.globals?.series || [];
+              const total = dataPointIndex >= 0
+                ? stackedSeries.reduce((sum, serie) => sum + Number((serie || [])[dataPointIndex] || 0), 0)
+                : 0;
+              const pct = total > 0 ? ((Number(val || 0) / total) * 100).toFixed(1) : '0.0';
+              return `${val} votos (${pct}%)`;
             }
           }
         },

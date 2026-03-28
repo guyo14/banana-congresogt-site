@@ -1,57 +1,48 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import db from '../../lib/db.js';
+import Layout from "../../layouts/Layout.astro";
+import db from "../../lib/db.js";
 import OrgCard from "../../components/OrgCard.astro";
+import type { NoParams } from "../../lib/types";
+import { getPartyImagePath, getPartyPath } from "../../lib/paths";
 
-// Get parties with member count + attendance % + votes-in-favor % — all at build time
-const parties = db.prepare(`
+interface Party {
+  id: number;
+  name: string;
+  membersCount: number;
+}
+
+const parties = db
+  .prepare<NoParams, Party>(
+    `
   SELECT
     p.id,
-    p.name,
-    p.short_name,
-    COUNT(DISTINCT c.id) AS member_count,
-
-    -- Attendance rate across all members of this party
-    ROUND(
-      100.0 * SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END)
-            / MAX(COUNT(a.session_id), 1)
-    , 1) AS attendance_percent,
-
-    -- Votes-in-favor rate across all votes cast by party members
-    ROUND(
-      100.0 * SUM(CASE WHEN v.vote_type = 'in_favor' THEN 1 ELSE 0 END)
-            / MAX(COUNT(v.voting_id), 1)
-    , 1) AS in_favor_percent
-
+    p.short_name AS name,
+    COUNT(*) AS membersCount
   FROM parties p
-  LEFT JOIN congressmen c ON c.party_id = p.id
-  LEFT JOIN attendance a ON a.congressman_id = c.id
-  LEFT JOIN votes v ON v.congressman_id = c.id
+  LEFT JOIN congressmen c ON p.id = c.party_id
   GROUP BY p.id, p.short_name
-  ORDER BY member_count DESC, p.short_name
-`).all().map(p => ({
-  id: p.id,
-  name: p.name,
-  shortName: p.short_name ?? 'Sin bancada',
-  href: `/partidos/${p.id}`,
-  logo: `/parties/${p.id}.svg`,
-  memberCount: p.member_count,
-  attendancePercent: p.attendance_percent,
-  inFavorPercent: p.in_favor_percent,
-}));
+  ORDER BY p.short_name, membersCount DESC
+`,
+  )
+  .all();
 ---
 
 <Layout title="Bancadas del Congreso">
   <div class="page-header">
     <h1>Bancadas del Congreso</h1>
-    <p class="text-muted">Directorio de agrupaciones políticas. Compara asistencia y tendencia de voto.</p>
   </div>
 
   <div class="grid-cards">
-    {parties.map(({ logo, shortName, name, ...party }) =>
-      <OrgCard {...party} name={shortName}>
-          <img src={logo} alt={name} class="fit" />
-      </OrgCard>
-    )}
+    {
+      parties.map(({ id, name, membersCount }) => (
+        <OrgCard
+          name={name}
+          membersCount={membersCount}
+          href={getPartyPath(id)}
+        >
+          <img src={getPartyImagePath(id)} alt={name} class="fit" />
+        </OrgCard>
+      ))
+    }
   </div>
 </Layout>

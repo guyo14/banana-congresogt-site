@@ -1,205 +1,146 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import db from '../../lib/db.js';
-import DonutChart from '../../components/DonutChart.astro';
+import Layout from "../../layouts/Layout.astro";
+import db from "../../lib/db.js";
+import type { IdQuery, NoParams, OrgStats } from "../../lib/types.ts";
+import { PERIOD, CONGRESSMAN_STATUS } from "../../lib/mappers.ts";
+import AttendanceCharts from "../../components/AttendanceCharts.astro";
+import VotesCharts from "../../components/VotesCharts.astro";
+import RiceIndexChart from "../../components/RiceIndexChart.astro";
+import MembersGrid from "../../components/MembersGrid.astro";
 
 export async function getStaticPaths() {
-  const parties = db.prepare('SELECT id FROM parties').all();
-  return parties.map(p => ({
-    params: { id: p.id.toString() }
+  const parties = db
+    .prepare<NoParams, IdQuery>("SELECT id FROM parties")
+    .all();
+  return parties.map((p) => ({
+    params: { id: p.id.toString() },
   }));
 }
 
-const { id } = Astro.params;
+const id = Number.parseInt(Astro.params.id);
 
-// Fetch Party info
-const party = db.prepare('SELECT * FROM parties WHERE id = ?').get(id);
+interface Party {
+  id: number;
+  name: string;
+}
 
-// Fetch Members — with individual attendance percentage
-const members = db.prepare(`
+interface Congressman {
+  id: number;
+  firstName: string;
+  lastName: string;
+  badge: string;
+}
+
+const party = db
+  .prepare<number, Party>("SELECT * FROM parties WHERE id = ?")
+  .get(id);
+
+if (!party) throw new Error(`Party with ID ${id} not found`);
+
+const members = db
+  .prepare<NoParams, Congressman>(
+    `
   SELECT
-    c.id, c.first_name, c.last_name,
-    d.name as district_name,
-    cs.attendance_present,
-    (cs.attendance_present + cs.attendance_absent + cs.attendance_excused) as total_attendance
+    c.id,
+    c.first_name AS firstName,
+    c.last_name AS lastName,
+    d.name as badge 
   FROM congressmen c
-  LEFT JOIN districts  d ON d.id = c.district_id
-  LEFT JOIN congressman_stats cs ON cs.id = c.id AND cs.period = 'total'
-  WHERE c.party_id = ?
-  ORDER BY (cs.attendance_present * 100.0 / NULLIF(cs.attendance_present + cs.attendance_absent + cs.attendance_excused, 0)) DESC, c.first_name, c.last_name
-`).all(id);
+  LEFT JOIN districts d ON c.district_id = d.id
+  WHERE c.party_id = ? AND c.status = ${CONGRESSMAN_STATUS.ACTIVE}
+  ORDER BY c.first_name, c.last_name
+`,
+  )
+  .all(id);
 
-// IMPROVEMENT 2: Last 10 votations this partidos participated in, with partidos stance
-const partyVoting = db.prepare(`
+const totalStats = db
+  .prepare<number, OrgStats>(
+    `
   SELECT
-    vot.id,
-    vot.subject,
-    vot.start_date,
-    s.session_number,
-    SUM(CASE WHEN v.vote_type = 'a_favor'   THEN 1 ELSE 0 END) AS party_favor,
-    SUM(CASE WHEN v.vote_type = 'en_contra' THEN 1 ELSE 0 END) AS party_contra,
-    SUM(CASE WHEN v.vote_type = 'ausente'   THEN 1 ELSE 0 END) AS party_absent,
-    vas.total_favor,
-    vas.total_contra
-  FROM votes v
-  JOIN congressmen c  ON c.id = v.congressman_id AND c.party_id = ?
-  JOIN voting vot  ON vot.id = v.voting_id
-  JOIN sessions  s    ON s.id = vot.session_id
-  JOIN votation_aggregated_stats vas ON vas.voting_id = vot.id
-  GROUP BY vot.id, vot.subject, vot.start_date, s.session_number, vas.total_favor, vas.total_contra
-  ORDER BY vot.start_date DESC
-  LIMIT 10
-`).all(id);
+    attendance_present AS attendancePresent,
+    attendance_absent AS attendanceAbsent,
+    attendance_license AS attendanceLicense,
+    votes_in_favor AS votesInFavor,
+    votes_against AS votesAgainst,
+    votes_absent AS votesAbsent,
+    rice_index AS riceIndex
+  FROM party_stats
+  WHERE id = ? AND period = '${PERIOD.TOTAL}'
+`,
+  )
+  .get(id);
 
-// Color helper for attendance bar
-const attColor = (pct) => pct >= 80 ? 'var(--color-favor)' : pct >= 50 ? '#f0a500' : 'var(--color-contra)';
+if (!totalStats) throw new Error(`Party stats for ID ${id} not found`);
 
-// Fetch Aggregated Stats
-const totalStats = db.prepare(`
-  SELECT * FROM party_stats WHERE id = ? AND period = 'total'
-`).get(id) || {
-  attendance_present: 0, attendance_absent: 0, attendance_excused: 0,
-  votes_favor: 0, votes_contra: 0, votes_absent: 0, rice_index: 0
-};
-
-// Ensure values are numbers and handle possible nulls
-const attTotal = totalStats.attendance_present + totalStats.attendance_absent + totalStats.attendance_excused;
-const attPresent = totalStats.attendance_present;
-const attExcused = totalStats.attendance_excused;
-const attAbsent = totalStats.attendance_absent;
-
-const voteTotal = totalStats.votes_favor + totalStats.votes_contra + totalStats.votes_absent;
-const voteFavor = totalStats.votes_favor;
-const voteContra = totalStats.votes_contra;
-const voteAbsent = totalStats.votes_absent;
-
-const attPct = attTotal > 0 ? (attPresent / attTotal) * 100 : 0;
-const excPct = attTotal > 0 ? (attExcused / attTotal) * 100 : 0;
-
-const vFavorPct = voteTotal > 0 ? (voteFavor / voteTotal) * 100 : 0;
-const vContraPct = voteTotal > 0 ? (voteContra / voteTotal) * 100 : 0;
-
-const formatPct = (num) => num.toFixed(1);
+const yearlyStats = db.prepare<number, OrgStats>(`
+  SELECT
+    period,
+    attendance_present AS attendancePresent,
+    attendance_absent AS attendanceAbsent,
+    attendance_license AS attendanceLicense,
+    votes_in_favor AS votesInFavor,
+    votes_against AS votesAgainst,
+    votes_absent AS votesAbsent,
+    rice_index AS riceIndex
+  FROM party_stats
+  WHERE id = ? AND period != '${PERIOD.TOTAL}'
+  ORDER BY period
+`,
+  )
+  .all(id);
 ---
 
-<Layout title={`Bancada ${party.name}`}>
+<Layout title={`Partido ${party.name}`}>
   <div class="page-header text-center">
-    <div class="badge badge-party margin-auto mb-1">Bancada</div>
-    <h1 class="party-name">{party.name}</h1>
-    <p class="text-muted">{members.length} Diputados</p>
+    <div class="badge badge-party margin-auto mb-1">Partido Político</div>
+    <h1 class="district-name">{party.name}</h1>
+    <p class="text-muted">{members.length} Representante(s)</p>
   </div>
 
-  <div class="stats-container mb-3">
-    <div class="stats-card glass-panel">
-      <h2>Asistencia Promedio</h2>
-      <div class="chart-wrapper">
-        <DonutChart 
-          id={`attendance-party-${party.id}`}
-          series={[attPresent, attExcused, attAbsent]} 
-          labels={['Presente', 'Excusa', 'Ausente']}
-          colors={['#10b981', '#00B2E3', '#ef4444']}
-        />
-        <div class="chart-legend">
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> Presente</div><strong>{formatPct(attPct)}% ({attPresent})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--accent-color)"></span> Excusa</div><strong>{formatPct(excPct)}% ({attExcused})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> Ausente</div><strong>{formatPct(100 - attPct - excPct)}% ({attAbsent})</strong></div>
-        </div>
-      </div>
+  <RiceIndexChart
+    overallIndex={totalStats.riceIndex}
+    historyData={yearlyStats.map((stats) => ({
+      sessionName: stats.period,
+      index: stats.riceIndex,
+    }))}
+  />
+
+  <div class="stats-grid">
+    <div class="column-left">
+      <AttendanceCharts
+        total={{
+          present: totalStats.attendancePresent,
+          absent: totalStats.attendanceAbsent,
+          license: totalStats.attendanceLicense,
+        }}
+        byYear={yearlyStats.map((stats) => ({
+          period: stats.period,
+          present: stats.attendancePresent,
+          absent: stats.attendanceAbsent,
+          license: stats.attendanceLicense,
+        }))}
+      />
     </div>
 
-    <div class="stats-card glass-panel">
-      <h2>Tendencia de Votación Global</h2>
-      <div class="chart-wrapper">
-        <DonutChart 
-          id={`votes-party-${party.id}`}
-          series={[voteFavor, voteContra, voteAbsent]} 
-          labels={['A Favor', 'En Contra', 'Ausente']}
-          colors={['#10b981', '#ef4444', '#94a3b8']}
-        />
-        <div class="chart-legend">
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> A Favor</div><strong>{formatPct(vFavorPct)}% ({voteFavor})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> En Contra</div><strong>{formatPct(vContraPct)}% ({voteContra})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-ausente)"></span> Ausente</div><strong>{formatPct(100 - vFavorPct - vContraPct)}% ({voteAbsent})</strong></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- IMPROVEMENT 1: Members with individual attendance bars -->
-  <div class="members-section">
-    <h2>Integrantes ({members.length}) <span class="sort-note">ordenados por mayor asistencia</span></h2>
-    <div class="grid-cards">
-      {members.map(c => {
-        const pct   = c.total_attendance > 0 ? (c.attendance_present / c.total_attendance * 100).toFixed(1) : 0;
-        const color = attColor(pct);
-        return (
-          <a href={`/congresistas/${c.id}`} class="member-card glass-panel">
-            <div class="photo">
-              <img src={`/congressmen/${c.id}.jpg`} alt={`${c.first_name} ${c.last_name}`} loading="lazy" />
-            </div>
-            <div class="info">
-              <h4>{c.first_name} {c.last_name}</h4>
-              <span class="badge badge-district">{c.district_name}</span>
-              <div class="member-att-bar" title={`Asistencia: ${pct}%`}>
-                <div class="member-att-bg">
-                  <div class="member-att-fill" style={`width:${pct}%; background:${color}`}></div>
-                </div>
-                <span class="member-att-label" style={`color:${color}`}>{pct}%</span>
-              </div>
-            </div>
-          </a>
-        );
-      })}
+    <div class="column-right">
+      <VotesCharts
+        total={{
+          inFavor: totalStats.votesInFavor,
+          against: totalStats.votesAgainst,
+          absent: totalStats.votesAbsent,
+        }}
+        byYear={yearlyStats.map((stats) => ({
+          period: stats.period,
+          inFavor: stats.votesInFavor,
+          against: stats.votesAgainst,
+          absent: stats.votesAbsent,
+        }))}
+      />
     </div>
   </div>
 
-  <!-- IMPROVEMENT 2: Party votaciones history (last 10 votations) -->
-  {partyVoting.length > 0 && (
-    <div class="votations-section">
-      <h2>Votaciones Recientes <span class="sort-note">últimas {partyVoting.length}</span></h2>
-      <div class="votation-list">
-        {partyVoting.map(v => {
-          const partyTotal    = v.party_favor + v.party_contra + v.party_absent;
-          const partyFavorPct = partyTotal > 0 ? (v.party_favor  / partyTotal) * 100 : 0;
-          const partyContraPct= partyTotal > 0 ? (v.party_contra / partyTotal) * 100 : 0;
+  <MembersGrid members={members} />
 
-          // Derive partidos dominant stance
-          let stanceLabel = 'Dividida';
-          let stanceColor = 'var(--text-muted)';
-          if (v.party_favor > v.party_contra && v.party_favor > v.party_absent) {
-            stanceLabel = 'A Favor'; stanceColor = 'var(--color-favor)';
-          } else if (v.party_contra > v.party_favor && v.party_contra > v.party_absent) {
-            stanceLabel = 'En Contra'; stanceColor = 'var(--color-contra)';
-          }
-
-          const isApproved   = v.total_favor > v.total_contra;
-          const outcomeLabel = isApproved ? 'Aprobado' : 'Rechazado';
-          const outcomeColor = isApproved ? 'var(--color-favor)' : 'var(--color-contra)';
-
-          return (
-            <a href={`/votaciones/${v.id}`} class="votation-row glass-panel">
-              <div class="votation-row-meta">
-                <span class="badge" style="background:var(--bg-tertiary); font-size:0.78rem">Sesión {v.session_number}</span>
-                <span class="vot-date">{new Date(v.start_date).toLocaleDateString('es-GT', {year:'numeric',month:'short',day:'numeric'})}</span>
-              </div>
-              <div class="votation-row-subject">{v.subject}</div>
-              <div class="votation-row-bars">
-                <div class="vot-mini-bar" title={`Bancada a favor: ${v.party_favor} · En contra: ${v.party_contra}`}>
-                  <div style={`width:${partyFavorPct}%; background:var(--color-favor)`}></div>
-                  <div style={`width:${partyContraPct}%; background:var(--color-contra)`}></div>
-                  <div style={`width:${100-partyFavorPct-partyContraPct}%; background:var(--color-ausente)`}></div>
-                </div>
-              </div>
-              <div class="votation-row-badges">
-                <span class="stance-badge" style={`color:${stanceColor}; border-color:${stanceColor}; background:${stanceColor}22`}>{stanceLabel}</span>
-                <span class="outcome-badge" style={`color:${outcomeColor}; border-color:${outcomeColor}; background:${outcomeColor}22`}>{outcomeLabel}</span>
-              </div>
-            </a>
-          );
-        })}
-      </div>
-    </div>
-  )}
 </Layout>
 
 <style>
@@ -208,147 +149,78 @@ const formatPct = (num) => num.toFixed(1);
     margin-bottom: 2rem;
     border-bottom: 1px solid var(--border-color);
   }
-
-  .party-name {
+  .district-name {
     font-size: 3rem;
-    color: var(--accent-color);
+    color: var(--text-light);
   }
-
   .margin-auto {
     margin: 0 auto;
   }
-  
-  .mb-1 { margin-bottom: 1rem; }
-  .mb-3 { margin-bottom: 3rem; }
-
+  .mb-1 {
+    margin-bottom: 1rem;
+  }
+  .mb-3 {
+    margin-bottom: 3rem;
+  }
   .badge-party {
     background: rgba(88, 166, 255, 0.15);
     color: var(--accent-color);
     border-color: rgba(88, 166, 255, 0.3);
-  }
-  
-  .badge-district {
-    background: rgba(139, 148, 158, 0.15);
-    border-color: rgba(139, 148, 158, 0.3);
     font-size: 0.75rem;
   }
 
-  .stats-container {
+  .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: 1fr 1fr;
     gap: 2rem;
+    align-items: start;
+    min-width: 0;
+    margin-top: 2rem;
+    margin-bottom: 3rem;
   }
-
-  .stats-card {
+  .stats-grid > * {
+    min-width: 0;
+  }
+  
+  .section-card {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    padding: 1.5rem;
+    border-radius: 12px;
   }
-
-  .chart-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 2rem;
-  }
-
-  .chart-legend {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    flex-grow: 1;
-  }
-
-  .legend-item {
-    font-size: 0.95rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.6rem 1rem;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-  }
-
-  .legend-label-group { display: flex; align-items: center; gap: 0.75rem; }
-
-  .legend-item span {
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
-    display: inline-block;
-  }
-
-  .members-section h2,
-  .votations-section h2 {
-    margin-bottom: 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
+  .section-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.25rem;
   }
 
   .sort-note {
     font-size: 0.75rem;
     font-weight: 400;
     color: var(--text-muted);
+    margin-left: 0.75rem;
   }
 
-  /* Member card */
-  .member-card {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 1rem;
+  .votation-list {
+    display: flex; flex-direction: column; gap: 0.75rem;
   }
-
-  .member-card .photo {
-    width: 60px; height: 60px;
-    border-radius: 50%; overflow: hidden;
-    background: var(--bg-tertiary); flex-shrink: 0;
-    border: 2px solid var(--border-color);
-  }
-  .member-card .photo img { width: 100%; height: 100%; object-fit: cover; }
-  
-  .placeholder-img {
-    width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.5rem;
-  }
-
-  .member-card .info { flex: 1; min-width: 0; }
-  .member-card .info h4 { margin: 0 0 0.25rem 0; font-size: 1rem; color: var(--text-light); }
-
-  /* IMPROVEMENT 1: Member attendance mini-bar */
-  .member-att-bar {
-    display: flex; align-items: center; gap: 0.4rem; margin-top: 0.4rem;
-  }
-  .member-att-bg {
-    flex: 1; height: 5px; border-radius: 3px;
-    background: var(--bg-tertiary); overflow: hidden;
-  }
-  .member-att-fill { height: 100%; border-radius: 3px; }
-  .member-att-label { font-size: 0.7rem; font-weight: 700; min-width: 30px; text-align: right; }
-
-  .member-card:hover {
-    border-color: var(--accent-color);
-    transform: translateY(-3px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  }
-
-  /* IMPROVEMENT 2: Party votation history */
-  .votations-section { margin-top: 3rem; }
-  .votation-list { display: flex; flex-direction: column; gap: 0.75rem; }
-
-  .votation-row {
+  .votation-row-item {
     display: grid;
     grid-template-columns: auto 1fr auto auto;
     align-items: center;
     gap: 1rem 1.25rem;
-    padding: 1rem 1.25rem;
+    padding: 1rem;
     color: inherit;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     transition: border-color var(--transition-fast), transform var(--transition-fast);
   }
-  .votation-row:hover { border-color: var(--accent-color); transform: translateX(4px); }
+  .votation-row-item:hover {
+    border-color: var(--accent-color); transform: translateX(4px);
+  }
 
   .votation-row-meta { display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; flex-shrink: 0; }
   .vot-date { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
@@ -359,7 +231,6 @@ const formatPct = (num) => num.toFixed(1);
     -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
 
-  /* Mini 3-segment bar (favor / contra / absent) */
   .votation-row-bars { flex-shrink: 0; width: 80px; }
   .vot-mini-bar {
     height: 8px; border-radius: 4px; overflow: hidden;
@@ -375,17 +246,22 @@ const formatPct = (num) => num.toFixed(1);
     border: 1px solid; white-space: nowrap;
   }
 
+  @media (max-width: 900px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .district-name {
+      font-size: 2rem;
+    }
+  }
   @media (max-width: 640px) {
-    .votation-row {
+    .votation-row-item {
       grid-template-columns: 1fr;
       gap: 0.5rem;
     }
     .votation-row-badges { flex-direction: row; align-items: center; }
-  }
-
-  @media (max-width: 768px) {
-    .chart-wrapper { flex-direction: column; gap: 1rem; }
-    .stats-container { grid-template-columns: 1fr; }
-    .party-name { font-size: 2rem; }
   }
 </style>

@@ -15,7 +15,7 @@ def get_connection():
     )
 
 def init_db():
-    schema_path = os.path.join(os.path.dirname(__file__), "schema", "schema.sql")
+    schema_path = os.path.join(os.path.dirname(__file__), "../database", "schema.sql")
     with open(schema_path, "r") as f:
         schema_sql = f.read()
     
@@ -25,22 +25,18 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
-    print("Database schema initialized.")
 
-def init_aliases():
-    alias_path = os.path.join(os.path.dirname(__file__), "schema", "alias.sql")
-    if not os.path.exists(alias_path):
-        return
-    with open(alias_path, "r") as f:
-        alias_sql = f.read()
+def insert_initial_data():
+    data_path = os.path.join(os.path.dirname(__file__), "../database", "initial_data.sql")
+    with open(data_path, "r") as f:
+        data_sql = f.read()
     
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(alias_sql)
+    cur.execute(data_sql)
     conn.commit()
     cur.close()
     conn.close()
-    print("Aliases initialized.")
 
 def insert_blocks(blocks):
     # blocks: list of tuples (id, name, short_name)
@@ -111,6 +107,19 @@ def insert_congressmen(congressmen):
     cur.close()
     conn.close()
 
+def update_congressman_profile(c_id, block_id, district_id):
+    query = """
+    UPDATE congressmen 
+    SET block_id = %s, district_id = %s
+    WHERE id = %s;
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(query, (block_id, district_id, c_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
 def get_congressmen_dict():
     query_congressmen = """
     SELECT id, key 
@@ -145,6 +154,20 @@ def get_congressmen_dict():
     cur.close()
     conn.close()
     return congressmen_dict
+
+def get_last_session():
+    query_max_session = """
+    SELECT MAX(id)
+    FROM sessions;
+    """
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(query_max_session)
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return result[0] if result and result[0] is not None else None
 
 def insert_session(session):
     # session: (id, type, session_number, start_date)

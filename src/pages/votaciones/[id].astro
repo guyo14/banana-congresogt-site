@@ -1,432 +1,238 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import db from '../../lib/db.js';
-import DonutChart from '../../components/DonutChart.astro';
-import StackedBarChart from '../../components/StackedBarChart.astro';
+import Layout from "../../layouts/Layout.astro";
+import db from "../../lib/db.ts";
+import DoughnutChart from "../../components/DoughnutChart.astro";
+import GroupedActionTabs from "../../components/GroupedActionTabs.astro";
+import type { NoParams, IdQuery } from "../../lib/types.ts";
+import {
+  getSessionTypeString,
+  VOTE_TYPE,
+  VOTE_TYPE_STRING,
+} from "../../lib/mappers.ts";
 
 export async function getStaticPaths() {
-  const voting = db.prepare('SELECT id FROM voting').all();
-  return voting.map(v => ({
-    params: { id: v.id.toString() }
+  const votingIds = db
+    .prepare<NoParams, IdQuery>("SELECT id FROM voting")
+    .all();
+  return votingIds.map((v) => ({
+    params: { id: v.id.toString() },
   }));
 }
 
-const { id } = Astro.params;
+const id = Number.parseInt(Astro.params.id);
 
-// Fetch Votation info
-const voting = db.prepare(`
-  SELECT v.id, v.subject, v.start_date, s.session_number 
+// Fetch all voting IDs to compute global number
+const allVoting = db
+  .prepare<NoParams, IdQuery>(
+    `SELECT v.id FROM voting v JOIN sessions s ON v.session_id = s.id ORDER BY s.start_date DESC, v.id DESC`,
+  )
+  .all();
+const globalNumber = allVoting.length - allVoting.findIndex((v) => v.id === id);
+
+interface VotingDetail {
+  id: number;
+  subject: string;
+  start_date: string;
+  session_number: number;
+  session_type: number;
+  period: string;
+  majority: number;
+  votes_in_favor: number;
+  votes_against: number;
+  votes_absent: number;
+  attendance_present: number;
+  attendance_absent: number;
+  attendance_license: number;
+}
+
+const voting = db
+  .prepare<number, VotingDetail>(
+    `
+  SELECT 
+    v.id, v.subject, s.start_date, s.session_number, s.type as session_type, s.period,
+    v.majority,
+    v.votes_in_favor, v.votes_against, v.votes_absent,
+    v.attendance_present, v.attendance_absent, v.attendance_license
   FROM voting v
   JOIN sessions s ON v.session_id = s.id
   WHERE v.id = ?
-`).get(id);
+`,
+  )
+  .get(id);
 
-// Fetch all votes for this votaciones
-const votesList = db.prepare(`
+if (!voting) throw new Error(`Voting ${id} not found`);
+
+interface VoteMember {
+  action_value: number;
+  congressman_id: number;
+  first_name: string;
+  last_name: string;
+  party_id: number;
+  party_name: string;
+  district_id: number;
+  district_name: string;
+  block_id: number;
+  block_name: string;
+}
+
+// Fetch individual votes for the tabs
+const votesList = db
+  .prepare<number, VoteMember>(
+    `
   SELECT 
-    v.vote_type, 
+    v.vote_type as action_value, 
     c.id as congressman_id, c.first_name, c.last_name,
-    p.name as party_name, p.id as party_id,
-    d.name as district_name, d.id as district_id
+    p.id as party_id, COALESCE(p.name, 'Sin Partido') as party_name,
+    d.id as district_id, COALESCE(d.name, 'Nacional') as district_name,
+    COALESCE(c.block_id, -1) as block_id,
+    CASE WHEN c.block_id = -1 THEN 'Independientes' ELSE COALESCE(b.name, 'Independientes') END as block_name
   FROM votes v
   JOIN congressmen c ON v.congressman_id = c.id
   LEFT JOIN parties p ON c.party_id = p.id
   LEFT JOIN districts d ON c.district_id = d.id
+  LEFT JOIN blocks b ON c.block_id = b.id
   WHERE v.voting_id = ?
-  ORDER BY p.name ASC, c.first_name ASC
-`).all(id);
+  ORDER BY block_name ASC, p.name ASC, c.first_name ASC
+`,
+  )
+  .all(id);
 
-const formatDate = (dateString) => {
-  const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-  return new Date(dateString).toLocaleDateString('es-GT', options);
+const formatDate = (dateString: string) => {
+  const options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  };
+  return new Date(dateString).toLocaleDateString("es-GT", options);
 };
 
-// Fetch totals from aggregated stats
-const vas = db.prepare('SELECT * FROM votation_aggregated_stats WHERE voting_id = ?').get(id) || {
-  total_favor: 0, total_contra: 0, total_absent: 0, is_approved: 0
+const VOTE_ACTION_MAP = {
+  [VOTE_TYPE.IN_FAVOR]: { label: VOTE_TYPE_STRING.IN_FAVOR, color: "#00b2e3" },
+  [VOTE_TYPE.AGAINST]: { label: VOTE_TYPE_STRING.AGAINST, color: "#00da9f" },
+  [VOTE_TYPE.ABSENT]: { label: VOTE_TYPE_STRING.ABSENT, color: "#ffd700" }
 };
 
-const totalFavor = vas.total_favor;
-const totalContra = vas.total_contra;
-const totalAbsent = vas.total_absent;
-const totalVotes = totalFavor + totalContra + totalAbsent;
-
-const favorPct = totalVotes > 0 ? (totalFavor / totalVotes) * 100 : 0;
-const contraPct = totalVotes > 0 ? (totalContra / totalVotes) * 100 : 0;
-const formatPct = (num) => num.toFixed(1);
-
-// Group by partidos for a breakdown
-const partyBreakdown = {};
-votesList.forEach(v => {
-  const pname = v.party_name || 'Sin Bancada';
-  if (!partyBreakdown[pname]) {
-    partyBreakdown[pname] = { favor: 0, contra: 0, absent: 0, total: 0, id: v.party_id };
-  }
-  partyBreakdown[pname].total++;
-  if (v.vote_type === 'in_favor') partyBreakdown[pname].favor++;
-  else if (v.vote_type === 'against') partyBreakdown[pname].contra++;
-  else partyBreakdown[pname].absent++;
-});
-
-// Convert partidos breakdown to array and sort by total seats
-const partyList = Object.entries(partyBreakdown)
-  .map(([name, data]) => ({ name, ...data }))
-  .sort((a, b) => b.total - a.total);
-
-// Group by distritos
-const districtBreakdown = {};
-votesList.forEach(v => {
-  const dname = v.district_name || 'Sin Distrito';
-  if (!districtBreakdown[dname]) {
-    districtBreakdown[dname] = { favor: 0, contra: 0, absent: 0, total: 0, id: v.district_id };
-  }
-  districtBreakdown[dname].total++;
-  if (v.vote_type === 'in_favor') districtBreakdown[dname].favor++;
-  else if (v.vote_type === 'against') districtBreakdown[dname].contra++;
-  else districtBreakdown[dname].absent++;
-});
-
-const districtList = Object.entries(districtBreakdown)
-  .map(([name, data]) => ({ name, ...data }))
-  .sort((a, b) => b.total - a.total);
-
-// Outcome logic
-let outcomeLabel = 'RECHAZADO';
-let outcomeColor = 'var(--color-contra)';
-if (vas.is_approved === 1 || vas.is_approved === true) {
-  outcomeLabel = 'APROBADO';
-  outcomeColor = 'var(--color-favor)';
-}
-
-// Utility to render the dots for votes
-const getVoteColor = (type) => {
-  if (type === 'in_favor') return 'var(--color-favor)';
-  if (type === 'against') return 'var(--color-contra)';
-  return 'var(--color-ausente)';
-};
+const VOTE_FILTERS = [
+  { value: VOTE_TYPE.IN_FAVOR, label: VOTE_TYPE_STRING.IN_FAVOR },
+  { value: VOTE_TYPE.AGAINST, label: VOTE_TYPE_STRING.AGAINST },
+  { value: VOTE_TYPE.ABSENT, label: VOTE_TYPE_STRING.ABSENT }
+];
 ---
 
-<Layout title={`Votación: ${voting.subject.substring(0, 30)}...`}>
+<Layout title={`Votación #${globalNumber}: ${voting.subject.substring(0, 30)}...`}>
   <div class="page-header">
     <div class="header-meta">
-      <a href={`/sesiones/${voting.session_number}`} class="badge" style="background: var(--bg-tertiary)">Sesión {voting.session_number}</a>
-      <span class="text-muted">{formatDate(voting.start_date)}</span>
-      <span class="outcome-badge" style={`color: ${outcomeColor}; border-color: ${outcomeColor}; background: ${outcomeColor}22`}>
-        {outcomeLabel}
+      <span class="badge">
+        #{globalNumber}
       </span>
+      <span class="badge" style="background: var(--bg-tertiary)">
+        {voting.period} Sesión {getSessionTypeString(voting.session_type)} No. {voting.session_number}
+      </span>
+      <span class="text-muted">{formatDate(voting.start_date)}</span>
     </div>
     <h1>{voting.subject}</h1>
   </div>
 
-  <div class="top-row mb-3">
-    <div class="stats-card glass-panel outcome-card">
-      <h2>Resultado General</h2>
-      <div class="chart-wrapper">
-        <DonutChart 
-          id={`outcome-${voting.id}`}
-          series={[totalFavor, totalContra, totalAbsent]} 
-          labels={['A Favor', 'En Contra', 'Ausente']}
-          colors={['#2ea043', '#f85149', '#8b949e']}
-        />
-        <div class="chart-legend">
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> A Favor</div><strong>{formatPct(favorPct)}% ({totalFavor})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> En Contra</div><strong>{formatPct(contraPct)}% ({totalContra})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-ausente)"></span> Ausente</div><strong>{formatPct(100 - favorPct - contraPct)}% ({totalAbsent})</strong></div>
-        </div>
-      </div>
-    </div>
+  <!-- Top row: Resultado General + Asistencia charts side by side -->
+  <div class="stats-grid">
+    <section class="section-card glass-panel">
+      <h2 class="section-title">Resultado General</h2>
+      <DoughnutChart
+        labels={[
+          VOTE_TYPE_STRING.IN_FAVOR,
+          VOTE_TYPE_STRING.AGAINST,
+          VOTE_TYPE_STRING.ABSENT,
+        ]}
+        data={[
+          voting.votes_in_favor,
+          voting.votes_against,
+          voting.votes_absent,
+        ]}
+      />
+    </section>
 
-    <div class="individual-section glass-panel">
-      <div class="section-top">
-        <h2>Votos Individuales ({totalVotes})</h2>
-        <div class="filter-group">
-          <div class="vote-filters">
-            <button class="vote-filter active" data-filter="all">Todos</button>
-            <button class="vote-filter" data-filter="in_favor">A Favor</button>
-            <button class="vote-filter" data-filter="against">En Contra</button>
-            <button class="vote-filter" data-filter="absent">Ausente</button>
-          </div>
-          <input type="text" id="filterInput" placeholder="Buscar diputado..." />
-        </div>
-      </div>
-
-      <div class="vote-grid" id="voteGrid">
-        {votesList.map(v => (
-          <a href={`/congresistas/${v.congressman_id}`} class="ind-vote-card" data-name={`${v.first_name} ${v.last_name}`.toLowerCase()} data-vote={v.vote_type}>
-            <div class="ind-photo">
-              <img src={`/congressmen/${v.congressman_id}.jpg`} alt={v.first_name} loading="lazy" />
-            </div>
-            <div class="ind-info">
-              <h4>{v.first_name} {v.last_name}</h4>
-              <span class="badge-party text-small">{v.party_name}</span>
-            </div>
-            <div class="ind-vote-indicator" style={`background: ${getVoteColor(v.vote_type)}`} title={v.vote_type.replace('_', ' ')}></div>
-          </a>
-        ))}
-      </div>
-    </div>
+    <section class="section-card glass-panel">
+      <h2 class="section-title">Asistencia en la Votación</h2>
+      <DoughnutChart
+        labels={[
+          "Presente",
+          "Licencia",
+          "Ausente",
+        ]}
+        data={[
+          voting.attendance_present,
+          voting.attendance_license,
+          voting.attendance_absent,
+        ]}
+      />
+    </section>
   </div>
 
-  <div class="stats-card glass-panel party-breakdown">
-    <div class="breakdown-header">
-      <h2>Votos por Bancada</h2>
-      <div class="breakdown-tabs">
-        <button class="breakdown-tab active" data-tab="party" data-chart-id={`party-votation-${voting.id}`}>Bancada</button>
-        <button class="breakdown-tab" data-tab="district" data-chart-id={`district-votation-${voting.id}`}>Distrito</button>
-      </div>
-    </div>
-    <div class="chart-panel" id="panel-party">
-      <StackedBarChart id={`party-votation-${voting.id}`} dataList={partyList} />
-    </div>
-    <div class="chart-panel hidden" id="panel-district">
-      <StackedBarChart id={`district-votation-${voting.id}`} dataList={districtList} />
-    </div>
-  </div>
+  <section class="section-card glass-panel" style="margin-top: 2rem; margin-bottom: 2rem;">
+    <h2 class="section-title">
+      Detalle de Votación
+      <span class="sort-note">{votesList.length} diputados</span>
+    </h2>
 
+    <GroupedActionTabs members={votesList} actionMap={VOTE_ACTION_MAP} filters={VOTE_FILTERS} />
+  </section>
 </Layout>
 
-<script>
-  // --- Breakdown tabs (Bancada / Distrito) ---
-  const breakdownTabs = document.querySelectorAll('.breakdown-tab');
-  breakdownTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      breakdownTabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      const target = tab.dataset.tab;
-      document.querySelectorAll('.chart-panel').forEach(panel => {
-        panel.classList.toggle('hidden', !panel.id.endsWith(target));
-      });
-    });
-  });
-
-  // --- Individual votes filter ---
-  let activeTextFilter = '';
-  let activeVoteFilter = 'all';
-
-  const filterInput = document.getElementById('filterInput');
-  const filterButtons = document.querySelectorAll('.vote-filter');
-  const cards = document.querySelectorAll('.ind-vote-card');
-
-  function applyFilters() {
-    cards.forEach(card => {
-      const matchesText = card.dataset.name.includes(activeTextFilter);
-      const matchesVote = activeVoteFilter === 'all' || card.dataset.vote === activeVoteFilter;
-      
-      if (matchesText && matchesVote) {
-        card.style.display = 'flex';
-      } else {
-        card.style.display = 'none';
-      }
-    });
-  }
-
-  if (filterInput) {
-    filterInput.addEventListener('input', () => {
-      activeTextFilter = filterInput.value.toLowerCase();
-      applyFilters();
-    });
-  }
-
-  if (filterButtons.length > 0) {
-    filterButtons.forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        filterButtons.forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        activeVoteFilter = e.target.dataset.filter;
-        applyFilters();
-      });
-    });
-  }
-</script>
-
 <style>
-  .page-header { margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 2rem;}
-  .header-meta { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
-  .page-header h1 { font-size: 2rem; margin-bottom: 0.5rem; line-height: 1.3; }
-  
-  .outcome-badge {
-    padding: 0.3em 0.8em;
-    border-radius: 999px;
-    font-weight: bold;
-    font-size: 0.85rem;
-    border: 1px solid;
-    margin-left: auto;
+  .page-header {
+    margin-bottom: 2rem;
   }
-  
-  .mb-3 { margin-bottom: 3rem; }
-  .text-small { font-size: 0.8rem; }
-
-  /* Top row: Resultado General + Votos Individuales side by side */
-  .top-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    align-items: start;
-  }
-
-  .outcome-card { flex-shrink: 0; }
-
-  /* Make the individual section fill the remaining height in the top row */
-  .top-row .individual-section {
-    max-height: 520px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .top-row .vote-grid {
-    overflow-y: auto;
-    flex: 1;
-    min-height: 0;
-  }
-
-  .stats-card { display: flex; flex-direction: column; gap: 1.5rem; }
-  .chart-wrapper { display: flex; align-items: center; gap: 2rem; }
-  
-  .chart-legend { display: flex; flex-direction: column; gap: 0.75rem; flex-grow: 1; }
-  .legend-item {
-    font-size: 0.95rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.6rem 1rem;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-  }
-  .legend-label-group { display: flex; align-items: center; gap: 0.75rem; }
-  .legend-item span { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
-
-  /* Breakdown List styling */
-  .breakdown-list { display: flex; flex-direction: column; gap: 0.75rem; max-height: 250px; overflow-y: auto; padding-right: 0.5rem; }
-  .legend-item { font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-main); }
-  .legend-item span { width: 14px; height: 14px; border-radius: 3px; display: inline-block; flex-shrink: 0;}
-
-  /* Party/District Breakdown */
-  .party-breakdown { overflow: hidden; }
-
-  .breakdown-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-
-  .breakdown-tabs {
-    display: flex;
-    gap: 0.25rem;
-    background: var(--bg-tertiary);
-    padding: 0.25rem;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-  }
-
-  .breakdown-tab {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    padding: 0.4em 1em;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .breakdown-tab:hover { color: var(--text-main); }
-  .breakdown-tab.active { background: var(--border-color); color: var(--text-main); font-weight: bold; }
-
-  .chart-panel { width: 100%; }
-  .chart-panel.hidden { display: none; }
-
-  /* Individuals */
-  .individual-section { padding: 2rem; }
-  .section-top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
-  /* Filter UI */
-  .filter-group { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
-  
-  .vote-filters {
-    display: flex;
-    gap: 0.5rem;
-    background: var(--bg-tertiary);
-    padding: 0.25rem;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-  }
-  
-  .vote-filter {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    padding: 0.5em 1em;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .vote-filter:hover { color: var(--text-main); }
-  
-  .vote-filter.active { background: var(--border-color); color: var(--text-main); font-weight: bold; }
-  
-  #filterInput { padding: 0.7rem 1rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-main); font-family: inherit; font-size: 0.95rem; min-width: 0; width: 100%; max-width: 300px; }
-  #filterInput:focus { outline: none; border-color: var(--accent-color); }
-
-  .vote-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1rem;
-  }
-
-  .ind-vote-card {
+  .header-meta {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.75rem;
-    min-width: 0;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    color: inherit;
-    transition: transform var(--transition-fast), border-color var(--transition-fast);
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .badge {
+    background: var(--text-main);
+    color: var(--bg-color);
+    padding: 0.25em 0.75em;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 700;
   }
 
-  .ind-vote-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--accent-color);
+  /* Stats grid mirrors sesiones layout */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
+    margin-bottom: 2.5rem;
   }
 
-  .ind-photo {
-    width: 40px; height: 40px; border-radius: 50%; overflow: hidden; background: var(--bg-tertiary); flex-shrink: 0;
-  }
-  .ind-photo img { width: 100%; height: 100%; object-fit: cover; }
-  .placeholder-img { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
-
-  .ind-info { flex-grow: 1; min-width: 0; }
-  .ind-info h4 { margin: 0 0 0.2rem 0; font-size: 0.9rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--text-light); line-height: 1.3; }
-  
-  .badge-party { color: var(--text-muted); font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
-
-  .ind-vote-indicator {
-    width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
-    box-shadow: 0 0 0 2px var(--bg-secondary);
+  .section-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.25rem;
+    margin-top: 0;
+    color: var(--text-light);
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
-  @media (max-width: 768px) {
-    .top-row { grid-template-columns: 1fr; }
-    .top-row .individual-section { max-height: 420px; overflow: hidden; display: flex; flex-direction: column; }
-    .top-row .vote-grid { overflow-y: auto; flex: 1; min-height: 0; }
-    .chart-wrapper { flex-direction: column; align-items: center; gap: 1.5rem; }
-    .chart-wrapper > :first-child { max-width: 220px; width: 100%; }
-    .chart-legend { width: 100%; }
-    .individual-section { padding: 1rem; }
-    .section-top { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
-    .filter-group { flex-direction: column; width: 100%; }
-    .vote-filters { width: 100%; justify-content: center; flex-wrap: wrap; }
-    #filterInput { max-width: none; }
-    .vote-grid { grid-template-columns: 1fr; }
-    .page-header h1 { font-size: 1.3rem !important; }
-    .outcome-badge { margin-left: 0; }
+  .sort-note {
+    font-size: 0.78rem;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+
+  .section-card {
+    padding: 1.5rem;
+  }
+
+  @media (max-width: 900px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

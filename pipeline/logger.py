@@ -1,9 +1,8 @@
 import sys
 import datetime
-import os
 
 class Log:
-    LOG_FILE = "crawl_report.txt"
+    LOG_FILE = ".report.txt"
     LEVELS = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40}
     current_level = 20  # Default to INFO
 

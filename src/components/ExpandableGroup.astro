@@ -1,0 +1,174 @@
+---
+interface StatItem {
+  count: number;
+  label: string;
+  color: string;
+}
+
+interface Props {
+  id: string;
+  title: string;
+  iconPath?: string;
+  stats: StatItem[];
+  open?: boolean;
+}
+
+const { id, title, iconPath, stats, open = false } = Astro.props;
+---
+
+<div class={`expandable-group ${open ? 'is-open' : ''}`} data-group-id={id}>
+  <div class="eg-header glass-panel" tabindex="0" role="button" aria-expanded={open}>
+    <div class="eg-title-section">
+      {iconPath && <img src={iconPath} class="eg-icon" alt="" aria-hidden="true" />}
+      <h3 class="eg-title">{title}</h3>
+    </div>
+    
+    <div class="eg-stats">
+      {stats.map(stat => (
+        <span class="eg-stat-item" title={stat.label}>
+          <span class="eg-dot" style={`background: ${stat.color}`}></span>
+          {stat.count} {stat.label}
+        </span>
+      ))}
+      
+      <svg class="eg-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6 9 12 15 18 9"></polyline>
+      </svg>
+    </div>
+  </div>
+  
+  <div class="eg-content">
+    <div class="eg-content-inner">
+      <slot />
+    </div>
+  </div>
+</div>
+
+<style>
+  .expandable-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .eg-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    cursor: pointer;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    transition: all var(--transition-fast);
+    border-radius: 8px;
+    user-select: none;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .eg-header:hover {
+    border-color: var(--accent-color);
+  }
+
+  .eg-header:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: -2px;
+  }
+
+  .expandable-group.is-open .eg-header {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom: 1px solid transparent;
+  }
+
+  .eg-title-section {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .eg-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+  }
+
+  .eg-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-light);
+    margin: 0;
+  }
+
+  .eg-stats {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+  }
+
+  .eg-stat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-main);
+  }
+
+  .eg-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .eg-chevron {
+    color: var(--text-muted);
+    transition: transform var(--transition-fast);
+  }
+
+  .expandable-group.is-open .eg-chevron {
+    transform: rotate(180deg);
+  }
+
+  .eg-content {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--transition-fast);
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+  }
+
+  .expandable-group.is-open .eg-content {
+    grid-template-rows: 1fr;
+  }
+
+  .eg-content-inner {
+    overflow: hidden;
+  }
+
+  /* Usually we slot in a grid. We apply padding via the inner container */
+  :global(.eg-content-inner > *) {
+    padding: 1.5rem;
+  }
+
+  @media (max-width: 640px) {
+    .eg-header {
+      padding: 1rem;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .eg-stats {
+      width: 100%;
+      justify-content: space-between;
+    }
+    :global(.eg-content-inner > *) {
+      padding: 1rem;
+    }
+  }
+</style>

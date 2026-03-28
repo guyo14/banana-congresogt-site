@@ -1,41 +1,49 @@
 ---
+import {getCongressmanPath, getCongressmanPhotoPath} from "../lib/paths.ts";
+import {CONGRESSMAN_STATUS} from "../lib/mappers.ts";
+interface Props {
+  id: number;
+  firstName: string;
+  lastName: string;
+  status: number;
+  blockId: number;
+  blockName: string;
+  districtId: number;
+  districtName: string;
+}
+
 const {
   id,
-  fullName,
   firstName,
   lastName,
+  status,
   blockId,
   blockName,
   districtId,
-  districtName,
-  attendancePercent
+  districtName
 } = Astro.props;
 
-const color = attendancePercent >= 80 ? 'var(--color-acceptable)' : attendancePercent >= 50 ? 'var(--color-borderline)' : 'var(--color-unacceptable)';
+const fullName = `${firstName} ${lastName}`;
 ---
 
 <a
-        href={`/congresistas/${id}`}
+        href={getCongressmanPath(id)}
         class="congressman-card glass-panel"
         data-name={fullName.toLowerCase()}
-        data-block={blockId}
+        data-block={status == CONGRESSMAN_STATUS.ACTIVE ? blockId : -2}
         data-district={districtId}
-        data-attendance={attendancePercent}
+        data-status={status}
 >
     <div class="card-image">
-        <img src={`/congressmen/${id}.jpg`} alt={fullName} loading="lazy" />
+        <img src={getCongressmanPhotoPath(id)} alt={fullName} loading="lazy" />
     </div>
     <div class="card-info">
         <h3>{firstName}<br/>{lastName}</h3>
         <div class="tags">
-            <span class="badge badge-party">{blockName}</span>
+            {status === CONGRESSMAN_STATUS.INACTIVE ?
+              <span class="badge badge-inactive">Inactivo</span>:
+              blockName && <span class="badge badge-block">{blockName}</span>}
             <span class="badge badge-district">{districtName}</span>
-        </div>
-        <div class="att-bar-wrapper" title={`Asistencia: ${attendancePercent}%`}>
-            <div class="att-bar-bg">
-                <div class="att-bar-fill" style={`width: ${attendancePercent}%; background: ${color};`}></div>
-            </div>
-            <span class="att-label" style={`color: ${color};`}>{attendancePercent}%</span>
         </div>
     </div>
 </a>
@@ -48,6 +56,11 @@ const color = attendancePercent >= 80 ? 'var(--color-acceptable)' : attendancePe
         color: inherit;
         align-items: center;
         text-align: center;
+        transition: transform var(--transition-fast), border-color var(--transition-fast);
+    }
+    .congressman-card:hover {
+        border-color: var(--accent-color);
+        transform: translateY(-2px);
     }
 
     .card-image {
@@ -91,58 +104,20 @@ const color = attendancePercent >= 80 ? 'var(--color-acceptable)' : attendancePe
         margin-bottom: 0.75rem;
     }
 
-    .badge-party {
+    .badge-block {
         background: rgba(88, 166, 255, 0.15);
         color: var(--accent-color);
         border-color: rgba(88, 166, 255, 0.3);
     }
 
+    .badge-inactive {
+        background: color-mix(in srgb, var(--color-contra) 16%, white);
+        color: color-mix(in srgb, var(--color-contra) 78%, #5b1320);
+        border-color: color-mix(in srgb, var(--color-contra) 38%, white);
+    }
+
     .badge-district {
         background: rgba(139, 148, 158, 0.15);
         border-color: rgba(139, 148, 158, 0.3);
-    }
-
-    /* Attendance mini-bar */
-    .att-bar-wrapper {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-top: 0.25rem;
-        padding: 0 0.25rem;
-    }
-
-    .att-bar-bg {
-        flex: 1;
-        height: 6px;
-        border-radius: 3px;
-        background: var(--bg-tertiary);
-        overflow: hidden;
-    }
-
-    .att-bar-fill {
-        height: 100%;
-        border-radius: 3px;
-        transition: width 0.3s ease;
-    }
-
-    .att-label {
-        font-size: 0.75rem;
-        font-weight: 700;
-        min-width: 36px;
-        text-align: right;
-    }
-
-    @media (max-width: 768px) {
-        .card-image {
-            width: 80px;
-            height: 80px;
-        }
-        .card-info h3 {
-            font-size: 0.95rem;
-        }
-        .congressman-card {
-            padding: 1rem 0.75rem;
-            gap: 0.75rem;
-        }
     }
 </style>

@@ -1,139 +1,407 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import db from '../../lib/db.js';
+import Layout from "../../layouts/Layout.astro";
+import db from "../../lib/db.ts";
+import type { NoParams } from "../../lib/types.ts";
+import {
+  getSessionTypeString,
+  ATTENDANCE_STATUS,
+  SESSION_TYPE,
+} from "../../lib/mappers.ts";
 
-// Get all sessions with their attendance summaries
-const sessions = db.prepare(`
-  SELECT 
-    s.id, s.type, s.session_number, s.start_date,
-    COUNT(a.congressman_id) as total,
-    SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as presente,
-    SUM(CASE WHEN a.status = 'ausente' THEN 1 ELSE 0 END) as ausente
+interface SessionSummary {
+  id: number;
+  type: number;
+  session_number: number;
+  start_date: string;
+  period: string;
+  total: number;
+  presente: number;
+  ausente: number;
+  licencia: number;
+}
+
+const sessions = db
+  .prepare<[], SessionSummary>(
+    `
+  SELECT
+    s.id, s.type, s.session_number, s.start_date, s.period,
+    COUNT(a.congressman_id) AS total,
+    SUM(CASE WHEN a.status = ${ATTENDANCE_STATUS.PRESENT} THEN 1 ELSE 0 END) AS presente,
+    SUM(CASE WHEN a.status = ${ATTENDANCE_STATUS.ABSENT}  THEN 1 ELSE 0 END) AS ausente,
+    SUM(CASE WHEN a.status = ${ATTENDANCE_STATUS.LICENSE}  THEN 1 ELSE 0 END) AS licencia
   FROM sessions s
   LEFT JOIN attendance a ON s.id = a.session_id
   GROUP BY s.id
   ORDER BY s.start_date DESC
-`).all();
+`,
+  )
+  .all();
 
-const formatDate = (dateString) => {
-  const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-  return new Date(dateString).toLocaleDateString('es-GT', options);
+// Get distinct periods for filter dropdown
+const periods = [...new Set(sessions.map((s) => s.period))].sort(
+  (a, b) => Number(b) - Number(a),
+);
+
+const formatDate = (dateString: string): string => {
+  const options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  };
+  return new Date(dateString).toLocaleDateString("es-GT", options);
 };
 
-const formatPct = (present, total) => {
-  if (!total || total === 0) return '0%';
-  return ((present / total) * 100).toFixed(0) + '%';
+const toISODate = (dateString: string): string => {
+  return new Date(dateString).toISOString().split("T")[0];
 };
 ---
 
-<Layout title="Historial de Sesiones">
+<Layout title="Sesiones Plenarias">
   <div class="page-header">
     <h1>Sesiones Plenarias</h1>
-    <p class="text-muted">Registro de sesiones y su nivel de asistencia general.</p>
   </div>
 
-  <div class="sessions-list">
-    {sessions.map(s => (
-      <a href={`/sesiones/${s.id}`} class="session-card glass-panel">
-        <div class="session-info">
-          <div class="session-meta">
-            <span class="badge" style="background: var(--bg-tertiary)">{s.type.toUpperCase()}</span>
-            <span class="session-date">{formatDate(s.start_date)}</span>
-          </div>
-          <h3>Sesión No. {s.session_number}</h3>
-        </div>
-        
-        <div class="session-stats">
-          <div class="stat-text">
-            <span>Asistencia:</span>
-            <strong>{formatPct(s.presente, s.total)}</strong>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style={`width: ${formatPct(s.presente, s.total)}`}></div>
-          </div>
-        </div>
-      </a>
-    ))}
+  <div class="filters">
+    <div class="filter-group">
+      <label for="filterPeriod">Filtrar por Período</label>
+      <select id="filterPeriod">
+        <option value="">---Todos---</option>
+        {periods.map((p) => <option value={p}>{p}</option>)}
+      </select>
+    </div>
+    <div class="filter-group">
+      <label for="searchDate">Buscar por Fecha</label>
+      <input type="date" id="searchDate" />
+    </div>
+    <div class="filter-group">
+      <label for="filterType">Tipo de Sesión</label>
+      <select id="filterType">
+        <option value="">---Todas---</option>
+        <option value={SESSION_TYPE.ORDINARY}>Ordinaria</option>
+        <option value={SESSION_TYPE.EXTRAORDINARY}>Extraordinaria</option>
+        <option value={SESSION_TYPE.SOLEMN}>Solemne</option>
+      </select>
+    </div>
+  </div>
+
+  <p class="results-count" id="resultsCount">
+    {sessions.length} sesiones
+  </p>
+
+  <div class="sessions-list" id="sessionsList">
+    {
+      sessions.map((s) => {
+        const pctPresente =
+          s.total > 0 ? ((s.presente / s.total) * 100).toFixed(1) : "0";
+        const pctAusente =
+          s.total > 0 ? ((s.ausente / s.total) * 100).toFixed(1) : "0";
+        const pctLicencia =
+          s.total > 0 ? ((s.licencia / s.total) * 100).toFixed(1) : "0";
+        const typeLabel = getSessionTypeString(s.type);
+
+        return (
+          <a
+            href={`/sesiones/${s.id}`}
+            class="session-card glass-panel"
+            data-period={s.period}
+            data-type={s.type}
+            data-date={toISODate(s.start_date)}
+          >
+            <div class="session-info">
+              <div class="session-meta">
+                <span class="badge">{s.period}</span>
+                <span class="session-date">{formatDate(s.start_date)}</span>
+              </div>
+              <h3>
+                Sesión {typeLabel} No. {s.session_number}
+              </h3>
+            </div>
+
+            <div class="attendance-summary">
+              <div class="att-row">
+                <span class="att-dot att-presente" />
+                <span class="att-label">Presente</span>
+                <strong class="att-value">{s.presente}</strong>
+                <span class="att-pct">{pctPresente}%</span>
+              </div>
+              <div class="att-row">
+                <span class="att-dot att-licencia" />
+                <span class="att-label">Licencia</span>
+                <strong class="att-value">{s.licencia}</strong>
+                <span class="att-pct">{pctLicencia}%</span>
+              </div>
+              <div class="att-row">
+                <span class="att-dot att-ausente" />
+                <span class="att-label">Ausente</span>
+                <strong class="att-value">{s.ausente}</strong>
+                <span class="att-pct">{pctAusente}%</span>
+              </div>
+              <div class="att-bar">
+                <div
+                  class="att-bar-seg att-bar-presente"
+                  style={`width:${pctPresente}%`}
+                />
+                <div
+                  class="att-bar-seg att-bar-licencia"
+                  style={`width:${pctLicencia}%`}
+                />
+                <div
+                  class="att-bar-seg att-bar-ausente"
+                  style={`width:${pctAusente}%`}
+                />
+              </div>
+            </div>
+          </a>
+        );
+      })
+    }
   </div>
 </Layout>
+
+<script>
+  const filterPeriod = document.getElementById(
+    "filterPeriod",
+  ) as HTMLSelectElement;
+  const searchDate = document.getElementById("searchDate") as HTMLInputElement;
+  const filterType = document.getElementById("filterType") as HTMLSelectElement;
+  const cards = document.querySelectorAll<HTMLElement>(".session-card");
+  const resultsCount = document.getElementById("resultsCount")!;
+
+  function applyFilters() {
+    const periodVal = filterPeriod.value;
+    const dateVal = searchDate.value;
+    const typeVal = filterType.value;
+
+    let visible = 0;
+
+    cards.forEach((card) => {
+      const matchPeriod = !periodVal || card.dataset.period === periodVal;
+      const matchDate = !dateVal || card.dataset.date === dateVal;
+      const matchType = !typeVal || card.dataset.type === typeVal;
+
+      const show = matchPeriod && matchDate && matchType;
+      card.style.display = show ? "flex" : "none";
+      if (show) visible++;
+    });
+
+    resultsCount.textContent = `${visible} sesiones`;
+  }
+
+  filterPeriod.addEventListener("change", applyFilters);
+  searchDate.addEventListener("input", applyFilters);
+  filterType.addEventListener("change", applyFilters);
+</script>
 
 <style>
   .page-header {
     margin-bottom: 2rem;
   }
 
+  /* Filter grid — mirrors diputados/index.astro */
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .filter-group label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .filter-group input,
+  .filter-group select {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-size: 1rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--transition-fast);
+  }
+
+  .filter-group input:focus,
+  .filter-group select:focus {
+    border-color: var(--accent-color);
+  }
+
+  /* Date input indicator */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.5);
+    cursor: pointer;
+  }
+
+  .results-count {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 1.25rem;
+    padding-left: 0.25rem;
+  }
+
+  /* Session list & cards */
   .sessions-list {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .session-card {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1.5rem 2rem;
+    gap: 1.5rem;
+    padding: 1.1rem 1.5rem;
     color: inherit;
+    transition:
+      border-color var(--transition-fast),
+      transform var(--transition-fast);
+  }
+
+  .session-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .session-info h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    line-height: 1.35;
+    color: var(--text-light);
   }
 
   .session-meta {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    margin-bottom: 0.5rem;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.4rem;
+  }
+
+  .badge {
+    background: var(--bg-tertiary);
+    padding: 0.2em 0.65em;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
   }
 
   .session-date {
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: 0.82rem;
   }
 
-  .session-info h3 {
-    margin: 0;
-    font-size: 1.3rem;
-  }
-
-  .session-stats {
+  /* Attendance summary — right side of card */
+  .attendance-summary {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: 0.5rem;
-    width: 200px;
+    gap: 0.3rem;
+    min-width: 200px;
+    flex-shrink: 0;
   }
 
-  .stat-text {
-    font-size: 0.9rem;
+  .att-row {
     display: flex;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
   }
 
-  .progress-bar-bg {
-    width: 100%;
+  .att-dot {
+    width: 8px;
     height: 8px;
-    background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Attendance colors matching Chart.js basePalette order:
+     1st = Presente (#00b2e3), 2nd = Licencia (#00da9f), 3rd = Ausente (#ffd700) */
+  .att-presente {
+    background: #00b2e3;
+  }
+  .att-licencia {
+    background: #00da9f;
+  }
+  .att-ausente {
+    background: #ffd700;
+  }
+
+  .att-label {
+    color: var(--text-muted);
+    min-width: 55px;
+  }
+
+  .att-value {
+    color: var(--text-light);
+    min-width: 24px;
+    text-align: right;
+  }
+
+  .att-pct {
+    color: var(--text-muted);
+    min-width: 38px;
+    text-align: right;
+  }
+
+  /* Stacked bar */
+  .att-bar {
+    display: flex;
+    height: 6px;
+    border-radius: 3px;
     overflow: hidden;
+    background: var(--bg-tertiary);
+    margin-top: 0.25rem;
   }
 
-  .progress-bar-fill {
+  .att-bar-seg {
     height: 100%;
-    background: var(--accent-color);
-    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+  .att-bar-presente {
+    background: #00b2e3;
+  }
+  .att-bar-licencia {
+    background: #00da9f;
+  }
+  .att-bar-ausente {
+    background: #ffd700;
   }
 
+  /* Hover */
   .session-card:hover {
     border-color: var(--accent-color);
+    transform: translateX(5px);
   }
 
-  @media (max-width: 600px) {
+  /* Responsive */
+  @media (max-width: 960px) {
+    .filters {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .filters {
+      grid-template-columns: 1fr;
+    }
     .session-card {
       flex-direction: column;
       align-items: flex-start;
-      gap: 1.5rem;
+      gap: 1rem;
     }
-    .session-stats {
+    .attendance-summary {
+      min-width: unset;
       width: 100%;
-      align-items: flex-start;
     }
   }
 </style>

@@ -1,0 +1,153 @@
+---
+interface Props {
+  overallIndex: number; // 0 to 100
+  historyData: {
+    sessionName: string;
+    index: number;
+  }[];
+  title?: string;
+}
+
+const { overallIndex, historyData, title = "Índice Rice de Cohesión" } = Astro.props;
+
+// Generate unique IDs
+const uniqueId = Math.random().toString(36).substring(2, 9);
+const gaugeChartId = `riceGauge-${uniqueId}`;
+const lineChartId = `riceLine-${uniqueId}`;
+
+// Normalize the overall index for the gauge chart (DB stores as 0 to 1 float)
+const scaledOverall = overallIndex * 100;
+const historicalLabels = historyData.map(d => d.sessionName);
+const historicalValues = historyData.map(d => d.index * 100);
+---
+
+<section class="section-card glass-panel rice-index-section banana-chart-container">
+  <span
+    class="banana-chart-data"
+    style="display:none;"
+    data-type="rice-index"
+    data-chart={lineChartId}
+    data-legend={gaugeChartId}
+    data-gauge-val={scaledOverall}
+    data-labels={JSON.stringify(historicalLabels)}
+    data-data={JSON.stringify(historicalValues)}></span>
+
+  {
+    title && (
+      <h2 class="section-title" style="margin-top: 0;">
+        {title}
+      </h2>
+    )
+  }
+
+  <div class="rice-container">
+    <div class="gauge-section">
+      <div class="gauge-box">
+        <canvas id={gaugeChartId}></canvas>
+        <div class="gauge-center-text">
+          <span class="gauge-number">{scaledOverall.toFixed(1)}%</span>
+          <span class="gauge-label">General</span>
+        </div>
+      </div>
+    </div>
+    <div class="line-section">
+      <div class="chart-box line-chart-box">
+        <canvas id={lineChartId}></canvas>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .rice-index-section {
+    width: 100%;
+    margin-bottom: 2rem;
+  }
+  .section-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.25rem;
+  }
+  .rice-container {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    align-items: center;
+  }
+  @media (min-width: 900px) {
+    .rice-container {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+    }
+  }
+
+  .gauge-section {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .gauge-box {
+    position: relative;
+    width: 250px;
+    height: 140px; /* Adjusted height for half-donut */
+    margin: 0 auto;
+  }
+  .gauge-center-text {
+    position: absolute;
+    bottom: -10px; /* Position cleanly at the base of the arc */
+    left: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .gauge-number {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: var(--text-main);
+    line-height: 1;
+  }
+  .gauge-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+  }
+
+  .line-section {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    border-top: 1px dashed var(--border-color);
+    padding-top: 1.5rem;
+  }
+  @media (min-width: 900px) {
+    .line-section {
+      border-top: none;
+      border-left: 1px dashed var(--border-color);
+      padding-top: 0;
+      padding-left: 2rem;
+    }
+  }
+
+  .chart-box {
+    position: relative;
+    height: 250px;
+    width: 100%;
+    min-width: 0;
+  }
+  .line-chart-box {
+    height: 240px;
+  }
+</style>
+
+<script src="../scripts/chart-processing.ts"></script>

@@ -1,0 +1,14 @@
+[project]
+name = "banana"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "bs4>=0.0.2",
+    "dotenv>=0.9.9",
+    "pandas>=3.0.1",
+    "playwright>=1.58.0",
+    "psycopg2-binary>=2.9.11",
+    "sqlalchemy>=2.0.48",
+]

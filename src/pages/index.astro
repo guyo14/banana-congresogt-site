@@ -1,92 +1,92 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import db from '../lib/db.js';
+import db from '../lib/db.ts';
+import type { NoParams, CountQuery } from '../lib/types.ts';
+import {BLOCKS_PATH, CONGRESSMEN_PATH, DISTRICT_PATH, PARTIES_PATH, SESSIONS_PATH, VOTES_PATH} from "../lib/paths.ts";
+import {CONGRESSMAN_STATUS} from "../lib/mappers.ts";
 
 // Get high-level metrics for the landing page
 const stats = {
-  congressmen: db.prepare('SELECT COUNT(*) as count FROM congressmen').get().count,
-  blocks: db.prepare('SELECT COUNT(*) as count FROM blocks').get().count,
-  sessions: db.prepare('SELECT COUNT(*) as count FROM sessions').get().count,
-  voting: db.prepare('SELECT COUNT(*) as count FROM voting').get().count
+  congressmen: db.prepare<number, CountQuery>(`SELECT COUNT(*) as count FROM congressmen WHERE status = ?`).get(CONGRESSMAN_STATUS.ACTIVE)?.count,
+  blocks: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM blocks').get()?.count,
+  parties: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM parties').get()?.count,
+  districts: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM districts').get()?.count,
+  sessions: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM sessions').get()?.count,
+  voting: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM voting').get()?.count,
 };
 
-// Derive the "data freshness" date from the most recent sesiones
-const lastSession = db.prepare('SELECT start_date FROM sessions ORDER BY start_date DESC LIMIT 1').get();
+// Derive the "data freshness" date from the most recent sessions
+const lastSession = db.prepare<NoParams, { date: string }>(`
+  SELECT start_date AS date
+  FROM sessions
+  ORDER BY start_date DESC
+  LIMIT 1
+`).get();
 const lastUpdateDate = lastSession
-  ? new Date(lastSession.start_date).toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })
+  ? new Date(lastSession.date).toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })
   : null;
 ---
 
 <Layout title="Inicio">
   <div class="hero-section text-center">
-    <div class="hero-meta">
-      <span class="legislature-badge">X Legislatura · 2024&ndash;2027</span>
-      {lastUpdateDate && (
-        <span class="update-pill" title="Fecha de la última sesión registrada en el sistema">
-          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Datos al {lastUpdateDate}
-        </span>
-      )}
-    </div>
     <h1 class="hero-title">Audita a tu Congreso</h1>
-    <p class="hero-subtitle text-muted">
-      Explora, compara y recuerda cómo han votado y participado tus representantes. 
-      Toma decisiones informadas para las próximas elecciones.
-    </p>
+    <h2 class="hero-subtitle">X Legislatura · 2024&ndash;2027</h2>
+    {lastUpdateDate && (
+      <span class="update-pill" title="Fecha de la última sesión registrada en el sistema">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Datos al {lastUpdateDate}
+      </span>
+    )}
   </div>
 
   <div class="stats-grid">
-    <div class="stat-card glass-panel">
-      <h3>{stats.congressmen}</h3>
-      <p class="text-muted">Diputados</p>
-      <a href="/congresistas" class="btn-link">Ver todos &rarr;</a>
-    </div>
-    
-    <div class="stat-card glass-panel">
-      <h3>{stats.blocks}</h3>
-      <p class="text-muted">Bancadas</p>
-      <a href="/bancadas" class="btn-link">Ver bancadas &rarr;</a>
-    </div>
-    
-    <div class="stat-card glass-panel">
-      <h3>{stats.sessions}</h3>
-      <p class="text-muted">Sesiones</p>
-      <a href="/sesiones" class="btn-link">Ver historial &rarr;</a>
-    </div>
-    
-    <div class="stat-card glass-panel">
-      <h3>{stats.voting}</h3>
-      <p class="text-muted">Votaciones</p>
-      <a href="/votaciones" class="btn-link">Explorar votos &rarr;</a>
-    </div>
+    <a href={CONGRESSMEN_PATH}>
+      <div class="stat-card glass-panel">
+        <h3>{stats.congressmen}</h3>
+        <p class="text-muted">Diputados</p>
+      </div>
+    </a>
+
+    <a href={DISTRICT_PATH}>
+      <div class="stat-card glass-panel">
+          <h3>{stats.districts}</h3>
+          <p class="text-muted">Distritos</p>
+      </div>
+    </a>
+
+    <a href={BLOCKS_PATH}>
+      <div class="stat-card glass-panel">
+        <h3>{stats.blocks}</h3>
+        <p class="text-muted">Bancadas</p>
+      </div>
+    </a>
+
+    <a href={PARTIES_PATH}>
+      <div class="stat-card glass-panel">
+          <h3>{stats.parties}</h3>
+          <p class="text-muted">Partidos</p>
+      </div>
+    </a>
+
+    <a href={SESSIONS_PATH}>
+      <div class="stat-card glass-panel">
+        <h3>{stats.sessions}</h3>
+        <p class="text-muted">Sesiones</p>
+      </div>
+    </a>
+
+    <a href={VOTES_PATH}>
+      <div class="stat-card glass-panel">
+        <h3>{stats.voting}</h3>
+        <p class="text-muted">Votaciones</p>
+      </div>
+    </a>
   </div>
 </Layout>
 
 <style>
   .hero-section {
     padding: 4rem 0 3rem;
-  }
-
-  .hero-meta {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    margin-bottom: 1.5rem;
-  }
-
-  .legislature-badge {
-    display: inline-block;
-    padding: 0.35em 1em;
-    border-radius: 999px;
-    font-size: 0.85rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    background: rgba(88, 166, 255, 0.15);
-    color: var(--accent-color);
-    border: 1px solid rgba(88, 166, 255, 0.35);
-    text-transform: uppercase;
   }
 
   .update-pill {
@@ -117,21 +117,23 @@ const lastUpdateDate = lastSession
   }
   
   .hero-subtitle {
+    margin: 0 0 1rem;
     font-size: 1.2rem;
-    max-width: 600px;
-    margin: 0 auto;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--text-muted);
   }
 
   .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 2rem;
     margin-top: 3rem;
   }
 
   .stat-card {
     text-align: center;
-    padding: 2.5rem 1.5rem;
+    padding: 3rem 2rem;
   }
 
   .stat-card h3 {
@@ -140,19 +142,9 @@ const lastUpdateDate = lastSession
     margin-bottom: 0.5rem;
   }
 
-  .btn-link {
-    display: inline-block;
-    margin-top: 1.5rem;
-    font-size: 0.95rem;
-    font-weight: 500;
-  }
-
   @media (max-width: 768px) {
     .hero-section {
       padding: 2rem 0 1.5rem;
-    }
-    .hero-meta {
-      gap: 0.5rem;
     }
     .hero-title {
       font-size: 2rem;

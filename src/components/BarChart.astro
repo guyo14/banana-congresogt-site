@@ -1,0 +1,242 @@
+---
+interface Props {
+  periods: string[];
+  datasets: {
+    label: string;
+    data: number[];
+  }[];
+  title?: string;
+}
+
+const { periods, datasets, title } = Astro.props;
+
+// Generate unique IDs so multiple charts coexist cleanly
+const uniqueId = Math.random().toString(36).substring(2, 9);
+const chartId = `barChart-${uniqueId}`;
+const legendId = `barLegend-${uniqueId}`;
+---
+
+<div class="bar-component banana-chart-container">
+  <span
+    class="banana-chart-data"
+    style="display:none;"
+    data-type="stacked-bar"
+    data-chart={chartId}
+    data-legend={legendId}
+    data-labels={JSON.stringify(periods)}
+    data-datasets={JSON.stringify(datasets)}></span>
+
+  {
+    title && (
+      <h3 class="sub-title" style="margin-top: 2rem;">
+        {title}
+      </h3>
+    )
+  }
+
+  <div class="donut-container bar-container">
+    <div class="chart-box bar-chart-box">
+      <canvas id={chartId}></canvas>
+    </div>
+    <div class="legend-side bar-legend-side">
+      <div id={legendId} class="donut-legend-wrap"></div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .bar-component {
+    width: 100%;
+    margin-bottom: 2rem;
+  }
+  .sub-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .chart-box {
+    position: relative;
+    height: 300px;
+    width: 100%;
+    margin: 0 auto;
+    min-width: 0;
+  }
+  .bar-chart-box {
+    flex: 1;
+    min-width: 0;
+    height: 320px;
+  }
+  .donut-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: center;
+  }
+  .bar-container {
+    align-items: stretch;
+    flex-direction: column !important;
+  }
+  .legend-side {
+    flex: 1;
+    min-width: 280px;
+    width: 100%;
+    max-width: 450px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .bar-legend-side {
+    max-width: none !important;
+  }
+
+  @media (min-width: 900px) {
+    .donut-container {
+      flex-direction: row;
+      justify-content: center;
+      align-items: center;
+    }
+    .bar-container {
+      align-items: flex-start;
+    }
+  }
+
+  :global(.custom-legend-list) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  :global(.custom-legend-item) {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+  :global(.custom-legend-item:hover) {
+    border-color: var(--accent-color);
+    transform: translateX(4px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  :global(.custom-legend-item.is-hidden) {
+    opacity: 0.45;
+    background: transparent;
+  }
+  :global(.custom-legend-item.is-hidden:hover) {
+    opacity: 0.8;
+  }
+  :global(.custom-legend-item:focus-visible) {
+    outline: 2px solid var(--accent-color);
+    outline-offset: -2px;
+  }
+
+  :global(.legend-color-square) {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+  }
+
+  :global(.legend-info-wrap) {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+  }
+  :global(.legend-title) {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  :global(.legend-stats) {
+    font-size: 0.9rem;
+    color: var(--text-light);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  :global(.val-count) {
+    font-weight: 700;
+  }
+  :global(.val-pct) {
+    color: var(--text-muted);
+  }
+
+  :global(.legend-eye-icon) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
+  }
+  :global(.custom-legend-item:hover .legend-eye-icon) {
+    color: var(--accent-color);
+  }
+
+  :global(.period-legend-list) {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    width: 100%;
+  }
+  :global(.period-legend-card) {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  :global(.period-legend-header) {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+  :global(.period-legend-header h4) {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text-main);
+  }
+  :global(.period-total-badge) {
+    font-size: 0.75rem;
+    background: var(--bg-tertiary);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    color: var(--text-muted);
+  }
+  :global(.period-level-item) {
+    padding: 0.3rem 0.5rem;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    gap: 0.6rem;
+  }
+  :global(.period-level-item:hover) {
+    background: var(--bg-tertiary);
+    transform: none;
+    box-shadow: none;
+    border: none;
+  }
+</style>
+<script src="../scripts/chart-processing.ts"></script>

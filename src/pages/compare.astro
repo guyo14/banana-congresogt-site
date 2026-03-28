@@ -2,7 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 import db from '../lib/db.js';
 
-// Build: embed a compact dataset for all congresistas (subqueries avoid Cartesian product)
+// Build: embed a compact dataset for all diputados (subqueries avoid Cartesian product)
 const dataset = db.prepare(`
   SELECT
     c.id,
@@ -11,25 +11,25 @@ const dataset = db.prepare(`
     p.name  AS party_name,
     d.name  AS district_name,
     -- Attendance Percentage
-    CASE WHEN (cs.attendance_present + cs.attendance_absent + cs.attendance_excused) > 0 
-         THEN ROUND(100.0 * cs.attendance_present / (cs.attendance_present + cs.attendance_absent + cs.attendance_excused), 1)
+    CASE WHEN (cs.attendance_present + cs.attendance_absent + cs.attendance_license) > 0 
+         THEN ROUND(100.0 * cs.attendance_present / (cs.attendance_present + cs.attendance_absent + cs.attendance_license), 1)
          ELSE 0 END AS att_pct,
          
-    CASE WHEN (cs.attendance_present + cs.attendance_absent + cs.attendance_excused) > 0 
-         THEN ROUND(100.0 * cs.attendance_excused / (cs.attendance_present + cs.attendance_absent + cs.attendance_excused), 1)
+    CASE WHEN (cs.attendance_present + cs.attendance_absent + cs.attendance_license) > 0 
+         THEN ROUND(100.0 * cs.attendance_license / (cs.attendance_present + cs.attendance_absent + cs.attendance_license), 1)
          ELSE 0 END AS exc_pct,
          
     -- Voting Percentage
-    CASE WHEN (cs.votes_favor + cs.votes_contra + cs.votes_absent) > 0 
-         THEN ROUND(100.0 * cs.votes_favor / (cs.votes_favor + cs.votes_contra + cs.votes_absent), 1)
+    CASE WHEN (cs.votes_in_favor + cs.votes_against + cs.votes_absent) > 0 
+         THEN ROUND(100.0 * cs.votes_in_favor / (cs.votes_in_favor + cs.votes_against + cs.votes_absent), 1)
          ELSE 0 END AS favor_pct,
          
-    CASE WHEN (cs.votes_favor + cs.votes_contra + cs.votes_absent) > 0 
-         THEN ROUND(100.0 * cs.votes_contra / (cs.votes_favor + cs.votes_contra + cs.votes_absent), 1)
+    CASE WHEN (cs.votes_in_favor + cs.votes_against + cs.votes_absent) > 0 
+         THEN ROUND(100.0 * cs.votes_against / (cs.votes_in_favor + cs.votes_against + cs.votes_absent), 1)
          ELSE 0 END AS contra_pct,
          
-    COALESCE(cs.attendance_present + cs.attendance_excused, 0) AS sessions_attended,
-    COALESCE(cs.votes_favor + cs.votes_contra, 0) AS total_votes
+    COALESCE(cs.attendance_present + cs.attendance_license, 0) AS sessions_attended,
+    COALESCE(cs.votes_in_favor + cs.votes_against, 0) AS total_votes
   FROM congressmen c
   LEFT JOIN parties   p ON p.id = c.party_id
   LEFT JOIN districts d ON d.id = c.district_id

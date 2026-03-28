@@ -1,52 +1,102 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import db from '../../lib/db.js';
-import DonutChart from '../../components/DonutChart.astro';
+import Layout from "../../layouts/Layout.astro";
+import db from "../../lib/db.js";
+import type { IdQuery, NoParams, OrgStats } from "../../lib/types.ts";
+import { PERIOD, CONGRESSMAN_STATUS } from "../../lib/mappers.ts";
+import AttendanceCharts from "../../components/AttendanceCharts.astro";
+import VotesCharts from "../../components/VotesCharts.astro";
+import RiceIndexChart from "../../components/RiceIndexChart.astro";
+import MembersGrid from "../../components/MembersGrid.astro";
 
 export async function getStaticPaths() {
-  const districts = db.prepare('SELECT id FROM districts').all();
-  return districts.map(d => ({
-    params: { id: d.id.toString() }
+  const districts = db
+    .prepare<NoParams, IdQuery>("SELECT id FROM districts")
+    .all();
+  return districts.map((d) => ({
+    params: { id: d.id.toString() },
   }));
 }
 
-const { id } = Astro.params;
+const id = Number.parseInt(Astro.params.id);
 
-// Fetch District info
-const district = db.prepare('SELECT * FROM districts WHERE id = ?').get(id);
+interface District {
+  id: number;
+  name: string;
+}
+
+interface Congressman {
+  id: number;
+  firstName: string;
+  lastName: string;
+  badge: string;
+}
+
+const district = db
+  .prepare<number, District>(`
+  SELECT
+    id,
+    name
+  FROM districts
+  WHERE id = ?`)
+  .get(id);
+
+if (!district) throw new Error(`District with ID ${id} not found`);
 
 // Fetch Members
-const members = db.prepare(`
-  SELECT c.id, c.first_name, c.last_name, p.name as party_name 
+const members = db
+  .prepare<NoParams, Congressman>(
+    `
+  SELECT
+    c.id,
+    c.first_name AS firstName,
+    c.last_name AS lastName,
+    b.short_name as badge 
   FROM congressmen c
-  LEFT JOIN parties p ON c.party_id = p.id
-  WHERE c.district_id = ?
+  LEFT JOIN blocks b ON c.block_id = b.id
+  WHERE c.district_id = ? AND c.status = ${CONGRESSMAN_STATUS.ACTIVE}
   ORDER BY c.first_name, c.last_name
-`).all(id);
+`,
+  )
+  .all(id);
 
 // Fetch Aggregated Stats
-const totalStats = db.prepare(`
-  SELECT * FROM district_stats WHERE id = ? AND period = 'total'
-`).get(id) || {
-  attendance_present: 0, attendance_absent: 0, attendance_excused: 0,
-  votes_favor: 0, votes_contra: 0, votes_absent: 0, rice_index: 0
-};
+const totalStats = db
+  .prepare<number, OrgStats>(
+    `
+  SELECT
+    attendance_present AS attendancePresent,
+    attendance_absent AS attendanceAbsent,
+    attendance_license AS attendanceLicense,
+    votes_in_favor AS votesInFavor,
+    votes_against AS votesAgainst,
+    votes_absent AS votesAbsent,
+    rice_index AS riceIndex
+  FROM district_stats
+  WHERE id = ? AND period = '${PERIOD.TOTAL}'
+`,
+  )
+  .get(id);
 
-const attTotal = totalStats.attendance_present + totalStats.attendance_absent + totalStats.attendance_excused;
-const attPresent = totalStats.attendance_present;
-const attExcused = totalStats.attendance_excused;
-const attAbsent = totalStats.attendance_absent;
+if (!totalStats) throw new Error(`Districts stats for ID ${id} not found`);
 
-const voteTotal = totalStats.votes_favor + totalStats.votes_contra + totalStats.votes_absent;
-const voteFavor = totalStats.votes_favor;
-const voteContra = totalStats.votes_contra;
-const voteAbsent = totalStats.votes_absent;
-
-const attPct = attTotal > 0 ? (attPresent / attTotal) * 100 : 0;
-const excPct = attTotal > 0 ? (attExcused / attTotal) * 100 : 0;
-const vFavorPct = voteTotal > 0 ? (voteFavor / voteTotal) * 100 : 0;
-const vContraPct = voteTotal > 0 ? (voteContra / voteTotal) * 100 : 0;
-const formatPct = (num) => num.toFixed(1);
+const yearlyStats = db
+  .prepare<number, OrgStats>(
+    `
+  SELECT
+    period,
+    attendance_present AS attendancePresent,
+    attendance_absent AS attendanceAbsent,
+    attendance_license AS attendanceLicense,
+    votes_in_favor AS votesInFavor,
+    votes_against AS votesAgainst,
+    votes_absent AS votesAbsent,
+    rice_index AS riceIndex
+  FROM district_stats
+  WHERE id = ? AND period != '${PERIOD.TOTAL}'
+  ORDER BY period
+`,
+  )
+  .all(id);
 ---
 
 <Layout title={`Distrito ${district.name}`}>
@@ -56,98 +106,104 @@ const formatPct = (num) => num.toFixed(1);
     <p class="text-muted">{members.length} Representante(s)</p>
   </div>
 
-  <div class="stats-container mb-3">
-    <div class="stats-card glass-panel">
-      <h2>Asistencia Promedio</h2>
-      <div class="chart-wrapper">
-        <DonutChart 
-          id={`attendance-district-${district.id}`}
-          series={[attPresent, attExcused, attAbsent]} 
-          labels={['Presente', 'Excusa', 'Ausente']}
-          colors={['#10b981', '#00B2E3', '#ef4444']}
-        />
-        <div class="chart-legend">
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> Presente</div><strong>{formatPct(attPct)}% ({attPresent})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--accent-color)"></span> Excusa</div><strong>{formatPct(excPct)}% ({attExcused})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> Ausente</div><strong>{formatPct(100 - attPct - excPct)}% ({attAbsent})</strong></div>
-        </div>
-      </div>
+  <RiceIndexChart
+    overallIndex={totalStats.riceIndex}
+    historyData={yearlyStats.map((stats) => ({
+      sessionName: stats.period,
+      index: stats.riceIndex,
+    }))}
+  />
+
+  <div class="stats-grid">
+    <div class="column-left">
+      <AttendanceCharts
+        total={{
+          present: totalStats.attendancePresent,
+          absent: totalStats.attendanceAbsent,
+          license: totalStats.attendanceLicense,
+        }}
+        byYear={yearlyStats.map((stats) => ({
+          period: stats.period,
+          present: stats.attendancePresent,
+          absent: stats.attendanceAbsent,
+          license: stats.attendanceLicense,
+        }))}
+      />
     </div>
 
-    <div class="stats-card glass-panel">
-      <h2>Tendencia de Votación Global</h2>
-      <div class="chart-wrapper">
-        <DonutChart 
-          id={`votes-district-${district.id}`}
-          series={[voteFavor, voteContra, voteAbsent]} 
-          labels={['A Favor', 'En Contra', 'Ausente']}
-          colors={['#10b981', '#ef4444', '#94a3b8']}
-        />
-        <div class="chart-legend">
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-favor)"></span> A Favor</div><strong>{formatPct(vFavorPct)}% ({voteFavor})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-contra)"></span> En Contra</div><strong>{formatPct(vContraPct)}% ({voteContra})</strong></div>
-          <div class="legend-item"><div class="legend-label-group"><span style="background: var(--color-ausente)"></span> Ausente</div><strong>{formatPct(100 - vFavorPct - vContraPct)}% ({voteAbsent})</strong></div>
-        </div>
-      </div>
+    <div class="column-right">
+      <VotesCharts
+        total={{
+          inFavor: totalStats.votesInFavor,
+          against: totalStats.votesAgainst,
+          absent: totalStats.votesAbsent,
+        }}
+        byYear={yearlyStats.map((stats) => ({
+          period: stats.period,
+          inFavor: stats.votesInFavor,
+          against: stats.votesAgainst,
+          absent: stats.votesAbsent,
+        }))}
+      />
     </div>
   </div>
 
-  <div class="members-section">
-    <h2>Representantes ({members.length})</h2>
-    <div class="grid-cards">
-      {members.map(c => (
-        <a href={`/congressman/${c.id}`} class="member-card glass-panel">
-          <div class="photo">
-            <img src={`/congressmen/${c.id}.jpg`} alt={`${c.first_name} ${c.last_name}`} loading="lazy" />
-          </div>
-          <div class="info">
-            <h4>{c.first_name} {c.last_name}</h4>
-            <span class="badge badge-party">{c.party_name}</span>
-          </div>
-        </a>
-      ))}
-    </div>
-  </div>
+  <MembersGrid members={members} />
 </Layout>
 
 <style>
-  .page-header { padding: 3rem 0 2rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); }
-  .district-name { font-size: 3rem; color: var(--text-light); }
-  .margin-auto { margin: 0 auto; }
-  .mb-1 { margin-bottom: 1rem; }
-  .mb-3 { margin-bottom: 3rem; }
-  .badge-district { background: rgba(139, 148, 158, 0.15); border-color: rgba(139, 148, 158, 0.3); color: var(--text-main); }
-  .badge-party { background: rgba(88, 166, 255, 0.15); color: var(--accent-color); border-color: rgba(88, 166, 255, 0.3); font-size: 0.75rem; }
-  
-  .stats-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }
-  .stats-card { display: flex; flex-direction: column; gap: 1.5rem; }
-  .chart-wrapper { display: flex; align-items: center; gap: 2rem; }
-  .chart-legend { display: flex; flex-direction: column; gap: 0.75rem; flex-grow: 1; }
-  .legend-item {
-    font-size: 0.95rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.6rem 1rem;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
+  .page-header {
+    padding: 3rem 0 2rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--border-color);
   }
-  .legend-label-group { display: flex; align-items: center; gap: 0.75rem; }
-  .legend-item span { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+  .district-name {
+    font-size: 3rem;
+    color: var(--text-light);
+  }
+  .margin-auto {
+    margin: 0 auto;
+  }
+  .mb-1 {
+    margin-bottom: 1rem;
+  }
+  .mb-3 {
+    margin-bottom: 3rem;
+  }
+  .badge-district {
+    background: rgba(139, 148, 158, 0.15);
+    border-color: rgba(139, 148, 158, 0.3);
+    color: var(--text-main);
+  }
+  .badge-party {
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent-color);
+    border-color: rgba(88, 166, 255, 0.3);
+    font-size: 0.75rem;
+  }
 
-  .members-section h2 { margin-bottom: 1.5rem; }
-  .member-card { display: flex; align-items: center; gap: 1rem; padding: 1rem; }
-  .member-card .photo { width: 60px; height: 60px; border-radius: 50%; overflow: hidden; background: var(--bg-tertiary); flex-shrink: 0; border: 2px solid var(--border-color); }
-  .member-card .photo img { width: 100%; height: 100%; object-fit: cover; }
-  .placeholder-img { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
-  .member-card .info h4 { margin: 0 0 0.25rem 0; font-size: 1rem; color: var(--text-light); }
-  .member-card:hover { border-color: var(--accent-color); transform: translateY(-3px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+    min-width: 0;
+    margin-top: 2rem;
+    margin-bottom: 3rem;
+  }
+  .stats-grid > * {
+    min-width: 0;
+  }
+
+  @media (max-width: 900px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+  }
 
   @media (max-width: 768px) {
-    .chart-wrapper { flex-direction: column; gap: 1rem; }
-    .stats-container { grid-template-columns: 1fr; }
-    .district-name { font-size: 2rem; }
+    .district-name {
+      font-size: 2rem;
+    }
   }
 </style>

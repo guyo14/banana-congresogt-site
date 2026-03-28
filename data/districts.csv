@@ -13,13 +13,13 @@ id,name,key
 19,San Marcos,sanmarcos
 14,Petén,peten
 5,Chiquimula,chiquimula
-13,Lista Nacional,nacional
 21,Sololá,solola
 16,Quiché,quiche
 4,Chimaltenango,chimaltenango
 24,Zacapa,zacapa
 22,Suchitepéquez,suchitepequez
 15,Quetzaltenango,quetzaltenango
-3,Distrito Central,central
 6,El Progreso,elprogreso
 9,Huehuetenango,huehuetenango
+3,Distrito Central,distritocentral
+13,Lista Nacional,listanacional

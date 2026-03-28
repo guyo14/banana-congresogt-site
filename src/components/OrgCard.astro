@@ -1,35 +1,17 @@
 ---
-const { href, name, memberCount, attendancePercent, inFavorPercent } = Astro.props;
-const attendanceColor   = attendancePercent >= 80 ? 'var(--color-acceptable)' : attendancePercent >= 50 ? 'var(--color-borderline)' : 'var(--color-unacceptable)';
-const inFavorColor = 'var(--accent-color)';
+const { href, name, membersCount } = Astro.props;
 ---
+
 <a href={href} class="org-card glass-panel">
     <div class="card-top">
         <div class="logo-container">
             <slot />
         </div>
         <h3>{name}</h3>
-        <span class="badge badge-count">{memberCount} {memberCount === 1 ? 'Diputado' : 'Diputados'}</span>
-    </div>
-
-    <div class="metrics">
-        <!-- Attendance metric -->
-        <div class="metric-row">
-            <span class="metric-label">Asistencia</span>
-            <div class="metric-bar-bg">
-                <div class="metric-bar-fill" style={`width:${attendancePercent}%; background:${attendanceColor}`}></div>
-            </div>
-            <span class="metric-value" style={`color:${attendanceColor}`}>{attendancePercent}%</span>
-        </div>
-
-        <!-- Votes in favor metric -->
-        <div class="metric-row">
-            <span class="metric-label">A&nbsp;Favor</span>
-            <div class="metric-bar-bg">
-                <div class="metric-bar-fill" style={`width:${inFavorPercent}%; background:${inFavorColor}`}></div>
-            </div>
-            <span class="metric-value" style={`color:${inFavorColor}`}>{inFavorPercent}%</span>
-        </div>
+        <span class="badge badge-count"
+            >{membersCount}
+            {membersCount === 1 ? "Diputado" : "Diputados"}</span
+        >
     </div>
 </a>
 
@@ -117,7 +99,8 @@ const inFavorColor = 'var(--accent-color)';
         text-align: right;
     }
 
-    .org-card:hover h3 {
-        text-decoration: underline;
+    .org-card:hover {
+        border-color: var(--accent-color);
+        transform: translateY(-2px);
     }
 </style>

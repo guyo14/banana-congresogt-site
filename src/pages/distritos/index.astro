@@ -3,53 +3,38 @@ import Layout from '../../layouts/Layout.astro';
 import db from '../../lib/db.js';
 import MarkedMap from "../../components/MarkedMap.astro";
 import OrgCard from "../../components/OrgCard.astro";
+import type {NoParams} from "../../lib/types.ts";
+import {getDistrictPath} from "../../lib/paths.ts";
 
-// Get distritos with member count
-const districts = db.prepare(`
-    SELECT
-        d.id,
-        d.name,
-        d.key,
-        COUNT(DISTINCT c.id) AS member_count,
+interface District {
+  id: number;
+  name: string;
+  key: string;
+  membersCount: number;
+}
 
-        -- Attendance rate across all members of this party
-        ROUND(
-                100.0 * SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END)
-                    / MAX(COUNT(a.session_id), 1)
-            , 1) AS attendance_percent,
-
-        -- Votes-in-favor rate across all votes cast by party members
-        ROUND(
-                100.0 * SUM(CASE WHEN v.vote_type = 'in_favor' THEN 1 ELSE 0 END)
-                    / MAX(COUNT(v.voting_id), 1)
-            , 1) AS in_favor_percent
-
-    FROM congressmen c
-    LEFT JOIN districts d ON d.id = c.district_id
-    LEFT JOIN attendance a ON a.congressman_id = c.id
-    LEFT JOIN votes v ON v.congressman_id = c.id
-    GROUP BY d.id, d.name
-    ORDER BY member_count DESC, d.name
-`).all().map(d => ({
-  id: d.id,
-  name: d.name,
-  key: d.key,
-  href: `/distritos/${d.id}`,
-  memberCount: d.member_count,
-  attendancePercent: d.attendance_percent,
-  inFavorPercent: d.in_favor_percent
-}));
+// Get districts with member count
+const districts = db.prepare<NoParams, District>(`
+  SELECT
+    d.id,
+    d.name,
+    d.key,
+    COUNT(*) AS membersCount
+  FROM districts d
+  LEFT JOIN congressmen c ON d.id = c.district_id
+  GROUP BY d.id, d.name, d.key
+  ORDER BY d.name, membersCount DESC
+`).all();
 ---
 
 <Layout title="Distritos Electorales">
   <div class="page-header">
     <h1>Distritos Electorales</h1>
-    <p class="text-muted">Representación geopolítica en el Congreso.</p>
   </div>
 
   <div class="grid-cards">
-    {districts.map(({key, ...district}) =>
-      <OrgCard {...district}>
+    {districts.map(({id, name, key, membersCount}) =>
+      <OrgCard name={name} membersCount={membersCount} href={getDistrictPath(id)}>
           <MarkedMap districtMarked={key} cssClass="fit"/>
       </OrgCard>
     )}

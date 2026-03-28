@@ -1,0 +1,919 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import db from "../../lib/db.js";
+import type { NoParams, CongressmanStats, IdQuery } from "../../lib/types.ts";
+import AttendanceCharts from "../../components/AttendanceCharts.astro";
+import VotesCharts from "../../components/VotesCharts.astro";
+import {
+  getBlockPath,
+  getCongressmanPhotoPath,
+  getDistrictPath,
+  getPartyPath,
+  getVotingPath,
+} from "../../lib/paths.ts";
+import { VOTE_TYPE, VOTE_TYPE_STRING, PERIOD } from "../../lib/mappers.ts";
+import {
+  getCongressmanStatusString,
+  getSessionTypeString,
+  getVoteString,
+} from "../../lib/mappers.ts";
+import { formatDate } from "../../lib/util.ts";
+
+export async function getStaticPaths() {
+  const congressmen = db
+    .prepare<NoParams, IdQuery>("SELECT id FROM congressmen")
+    .all();
+  return congressmen.map((c) => ({
+    params: { id: c.id.toString() },
+  }));
+}
+
+const id = Number.parseInt(Astro.params.id);
+
+interface Congressman {
+  id: number;
+  firstName: string;
+  lastName: string;
+  birthDate: string;
+  status: number;
+  partyId: number;
+  partyName: string;
+  districtId: number;
+  districtName: string;
+  blockId: number;
+  blockName: string;
+}
+
+interface Attendance {
+  status: number;
+  sessionDate: string;
+  sessionNumber: number;
+  sessionType: number;
+}
+
+interface Vote {
+  votingId: number;
+  voteType: number;
+  subject: string;
+  sessionDate: string;
+  totalInFavor: number;
+  totalAgainst: number;
+  withMajority: number;
+}
+
+const congressman = db
+  .prepare<number, Congressman>(
+    `
+  SELECT
+    c.id,
+    c.first_name AS firstName,
+    c.last_name AS lastName,
+    c.birth_date AS birthDate,
+    c.status,
+    c.party_id AS partyId,
+    p.short_name AS partyName,
+    c.district_id AS districtId,
+    d.name AS districtName,
+    c.block_id AS blockId,
+    b.short_name AS blockName
+  FROM congressmen c 
+  LEFT JOIN parties p ON c.party_id = p.id 
+  LEFT JOIN districts d ON c.district_id = d.id
+  LEFT JOIN blocks b ON c.block_id = b.id
+  WHERE c.id = ?
+`,
+  )
+  .get(id);
+
+if (!congressman) {
+  throw new Error("Congressman not found");
+}
+
+const {
+  firstName,
+  lastName,
+  birthDate,
+  status,
+  partyId,
+  partyName,
+  districtId,
+  districtName,
+  blockId,
+  blockName,
+} = congressman;
+const fullName = `${firstName} ${lastName}`;
+
+const totalStats = db
+  .prepare<number, CongressmanStats>(
+    `
+  SELECT
+    period,
+    attendance_present AS attendancePresent,
+    attendance_license AS attendanceLicense,
+    attendance_absent AS attendanceAbsent,
+    votes_in_favor AS votesInFavor,
+    votes_against AS votesAgainst,
+    votes_absent AS votesAbsent,
+    votes_with_majority AS votesWithMajority
+  FROM congressman_stats 
+  WHERE id = ? AND period = '${PERIOD.TOTAL}'
+`,
+  )
+  .get(id);
+
+if (!totalStats) {
+  throw new Error("Total stats not found");
+}
+
+// Sessions attendance
+const attendance = db
+  .prepare<number, Attendance>(
+    `
+  SELECT
+    a.status,
+    s.start_date AS sessionDate,
+    s.session_number AS sessionNumber,
+    s.type AS sessionType
+  FROM attendance a
+  JOIN sessions s ON a.session_id = s.id
+  WHERE a.congressman_id = ?
+  ORDER BY s.start_date
+`,
+  )
+  .all(id);
+
+// Stats breakdown by year
+const statsByYear = db
+  .prepare<number, CongressmanStats>(
+    `
+  SELECT
+    period,
+    attendance_present AS attendancePresent,
+    attendance_license AS attendanceLicense,
+    attendance_absent AS attendanceAbsent,
+    votes_in_favor AS votesInFavor,
+    votes_against AS votesAgainst,
+    votes_absent AS votesAbsent,
+    votes_with_majority AS votesWithMajority
+  FROM congressman_stats 
+  WHERE id = ? AND period != '${PERIOD.TOTAL}'
+  ORDER BY period
+`,
+  )
+  .all(id);
+
+// All voting with outcome context
+const votes = db
+  .prepare<number, Vote>(
+    `
+  SELECT 
+    v.vote_type AS voteType,
+    vot.subject,
+    s.start_date AS sessionDate,
+    vot.id as votingId,
+    vot.votes_in_favor as totalInFavor,
+    vot.votes_against as totalAgainst,
+    v.with_majority AS withMajority
+  FROM votes v
+  JOIN voting vot ON v.voting_id = vot.id
+  JOIN sessions s ON vot.session_id = s.id
+  WHERE v.congressman_id = ?
+  ORDER BY votingId DESC
+`,
+  )
+  .all(id);
+
+// Utility for vote colors/labels
+const getVoteColor = (type: number) => {
+  if (type === VOTE_TYPE.IN_FAVOR) return "#00b2e3";
+  if (type === VOTE_TYPE.AGAINST) return "#00da9f";
+  return "#ffd700"; // ABSENT
+};
+
+// Heatmap structure grouped by year then month
+// { year: { month: [{ status, day, label }] } }
+const MONTH_NAMES = [
+  "Ene",
+  "Feb",
+  "Mar",
+  "Abr",
+  "May",
+  "Jun",
+  "Jul",
+  "Ago",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dic",
+];
+const heatmapData: Record<
+  string,
+  Record<string, Array<{ status: number; label: string }>>
+> = {};
+for (const a of attendance) {
+  const d = new Date(a.sessionDate);
+  const year = d.getFullYear();
+  const month = d.getMonth(); // 0-indexed
+  if (!heatmapData[year]) heatmapData[year] = {};
+  if (!heatmapData[year][month]) heatmapData[year][month] = [];
+  heatmapData[year][month].push({
+    status: a.status,
+    label: `${formatDate(d)} — Sesión ${getSessionTypeString(a.sessionType)} ${a.sessionNumber}`,
+  });
+}
+const heatmapYears = Object.keys(heatmapData).sort();
+---
+
+<Layout title={fullName}>
+  <div class="profile-header glass-panel">
+    <div class="profile-photo">
+      <img src={getCongressmanPhotoPath(id)} alt={fullName} loading="eager" />
+    </div>
+    <div class="profile-info">
+      <h1>{firstName}<br />{lastName}</h1>
+      <div class="profile-meta" aria-label="Información del diputado">
+        <div class="meta-item">
+          <span class="meta-label">Estado</span>
+          <span class="meta-value">{getCongressmanStatusString(status)}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Edad</span>
+          <span id="age" class="meta-value" data-birthdate={birthDate}></span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Distrito</span>
+          <span class="meta-value">
+            <a href={getDistrictPath(districtId)} class="meta-link"
+              >{districtName}</a
+            >
+          </span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Bancada</span>
+          <span class="meta-value">
+            {
+              blockId !== -1 ? (
+                <a href={getBlockPath(blockId)} class="meta-link">
+                  {blockName}
+                </a>
+              ) : (
+                <span class="meta-value-empty">Sin bancada</span>
+              )
+            }
+          </span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Partido</span>
+          <span class="meta-value">
+            <a href={getPartyPath(partyId)} class="meta-link">{partyName}</a>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <!-- Left Column: Attendance -->
+    <div class="column-left">
+      <AttendanceCharts
+        total={{
+          present: totalStats.attendancePresent,
+          absent: totalStats.attendanceAbsent,
+          license: totalStats.attendanceLicense,
+        }}
+        byYear={statsByYear.map((stats) => ({
+          period: stats.period,
+          present: stats.attendancePresent,
+          absent: stats.attendanceAbsent,
+          license: stats.attendanceLicense,
+        }))}
+      />
+
+      <section
+        class="section-card glass-panel sessions-history-card"
+        style="margin-top: 2rem;"
+      >
+        <div class="heatmap-section">
+          <h2 class="section-title" style="margin-top: 0;">Historial de Sesiones</h2>
+          <div class="heatmap-legend">
+            <span class="hm-dot status-0"></span> Presente
+            <span class="hm-dot status-2" style="margin-left:1rem"></span> Licencia
+            <span class="hm-dot status-1" style="margin-left:1rem"></span> Ausente
+          </div>
+          {
+            heatmapYears.map((year) => (
+              <div class="heatmap-year">
+                <div class="heatmap-year-label">{year}</div>
+                <div class="heatmap-months">
+                  {Array.from({ length: 12 }, (_, monthIdx) => {
+                    const sessions = heatmapData[year]?.[monthIdx] ?? [];
+                    return (
+                      <div class="heatmap-month">
+                        <div class="heatmap-month-name">
+                          {MONTH_NAMES[monthIdx]}
+                        </div>
+                        <div class="heatmap-dots">
+                          {sessions.map((s) => (
+                            <div
+                              class={`hm-dot status-${s.status}`}
+                              title={s.label}
+                            />
+                          ))}
+                          {sessions.length === 0 && (
+                            <div class="hm-dot hm-empty" />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </section>
+    </div>
+
+    <!-- Right Column: Votes -->
+    <div class="column-right">
+      <VotesCharts
+        total={{
+          inFavor: totalStats.votesInFavor,
+          against: totalStats.votesAgainst,
+          absent: totalStats.votesAbsent,
+        }}
+        byYear={statsByYear.map((stats) => ({
+          period: stats.period,
+          inFavor: stats.votesInFavor,
+          against: stats.votesAgainst,
+          absent: stats.votesAbsent,
+        }))}
+      />
+
+      <section
+        class="section-card glass-panel votes-history-card"
+        style="margin-top: 2rem;"
+      >
+        <div class="votes-section">
+          <div class="votes-header">
+            <h2 class="section-title" style="width: 100%; margin-bottom: 0; margin-top: 0;">
+              Historial de Votaciones <span class="vote-count-badge"
+                >{votes.length}</span
+              >
+            </h2>
+          </div>
+          <div
+            class="filters"
+            style="grid-template-columns: 1fr 1fr; margin-bottom: 1rem;"
+          >
+            <div class="filter-group">
+              <label for="voteSearch">Buscar por tema</label>
+              <input
+                type="text"
+                id="voteSearch"
+                class="vote-search"
+                placeholder="Ej. Presupuesto..."
+              />
+            </div>
+            <div class="filter-group">
+              <label for="filterVote">Filtrar por Voto</label>
+              <select id="filterVote" class="vote-search">
+                <option value="">---Todos---</option>
+                <option value={VOTE_TYPE.IN_FAVOR}
+                  >{VOTE_TYPE_STRING.IN_FAVOR}</option
+                >
+                <option value={VOTE_TYPE.AGAINST}
+                  >{VOTE_TYPE_STRING.AGAINST}</option
+                >
+                <option value={VOTE_TYPE.ABSENT}
+                  >{VOTE_TYPE_STRING.ABSENT}</option
+                >
+              </select>
+            </div>
+          </div>
+          <div class="vote-list-scroll" id="voteList">
+            {
+              votes.map((v) => {
+                const voteColor = getVoteColor(v.voteType);
+                const voteLabel = getVoteString(v.voteType);
+                return (
+                  <a
+                    href={getVotingPath(v.votingId)}
+                    class="vote-row"
+                    data-subject={v.subject.toLowerCase()}
+                    data-type={v.voteType}
+                  >
+                    <div class="vote-row-left">
+                      <div
+                        class="vote-type-pill"
+                        style={`background:${voteColor}22; border-color:${voteColor}; color:${voteColor}`}
+                      >
+                        {voteLabel}
+                      </div>
+                    </div>
+                    <div class="vote-row-center">
+                      <span class="vote-subject-text">{v.subject}</span>
+                    </div>
+                  </a>
+                );
+              })
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  // Calculate age
+  document.addEventListener("DOMContentLoaded", () => {
+    const spanAge = document.getElementById("age") as HTMLSpanElement;
+    const birthDateStr = spanAge.dataset.birthdate;
+    if (!birthDateStr) return;
+
+    const today = new Date();
+    const birthDate = new Date(birthDateStr);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+
+    spanAge.replaceChildren(`${age} años`);
+  });
+
+  // Vote search and filter
+  const voteSearch = document.getElementById("voteSearch") as HTMLInputElement;
+  const filterVote = document.getElementById("filterVote") as HTMLSelectElement;
+  const voteRows = document.querySelectorAll<HTMLElement>(".vote-row");
+
+  function applyVoteFilters() {
+    const q = voteSearch?.value.toLowerCase() || "";
+    const typeVal = filterVote?.value || "";
+
+    let visibleCount = 0;
+    voteRows.forEach((row) => {
+      const subject = (row.dataset.subject ?? "").toLowerCase();
+      const type = row.dataset.type ?? "";
+
+      const visible =
+        subject.includes(q) && (typeVal === "" || type === typeVal);
+      row.style.display = visible ? "flex" : "none";
+      if (visible) visibleCount++;
+    });
+
+    // Opt: update the count badge
+    const badge = document.querySelector(".vote-count-badge");
+    if (badge) badge.textContent = visibleCount.toString();
+  }
+
+  voteSearch?.addEventListener("input", applyVoteFilters);
+  filterVote?.addEventListener("change", applyVoteFilters);
+
+  function syncHistoryCardHeights() {
+    const sessionsCard = document.querySelector<HTMLElement>(
+      ".sessions-history-card",
+    );
+    const votesCard = document.querySelector<HTMLElement>(
+      ".votes-history-card",
+    );
+    if (!sessionsCard || !votesCard) return;
+
+    // Stack layout on mobile/tablet keeps natural height.
+    if (window.innerWidth <= 900) {
+      votesCard.style.height = "";
+      return;
+    }
+
+    const targetHeight = Math.round(
+      sessionsCard.getBoundingClientRect().height,
+    );
+    votesCard.style.height = `${targetHeight}px`;
+  }
+
+  syncHistoryCardHeights();
+  window.addEventListener("resize", syncHistoryCardHeights);
+</script>
+
+<style>
+  /* ---- Layout Grid ---- */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+    min-width: 0;
+  }
+  .stats-grid > * {
+    min-width: 0;
+  }
+  @media (max-width: 900px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* ---- Profile header ---- */
+  .profile-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+  }
+  .profile-photo {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 4px solid var(--border-color);
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+  }
+  .profile-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .profile-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .profile-info h1 {
+    font-size: 2rem;
+    margin-bottom: 0.85rem;
+    line-height: 1.1;
+  }
+  .profile-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.6rem;
+  }
+  .meta-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    min-width: 0;
+  }
+  .meta-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .meta-value {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
+    min-width: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-main);
+  }
+  .meta-link {
+    color: var(--text-main);
+    text-decoration: underline;
+    text-decoration-color: color-mix(
+      in srgb,
+      var(--accent-color) 45%,
+      transparent
+    );
+    text-underline-offset: 0.14em;
+    transition:
+      color var(--transition-fast),
+      text-decoration-color var(--transition-fast);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .meta-link:hover {
+    color: var(--accent-color);
+    text-decoration-color: var(--accent-color);
+  }
+  .meta-value-empty {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  @media (min-width: 1200px) {
+    .profile-header {
+      gap: 2rem;
+      padding: 2rem;
+    }
+    .profile-photo {
+      width: 150px;
+      height: 150px;
+    }
+    .profile-info h1 {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+    }
+    .profile-meta {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* ---- Section cards ---- */
+  .section-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    border-radius: 12px;
+  }
+  .section-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.25rem;
+  }
+  .sub-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* ---- Heatmap ---- */
+  .heatmap-section {
+    padding-top: 0.5rem;
+  }
+  .heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .heatmap-year {
+    margin-bottom: 1rem;
+  }
+  .heatmap-year-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 0.4rem;
+  }
+  .heatmap-months {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 0.25rem;
+  }
+  .heatmap-month {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .heatmap-month-name {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .heatmap-dots {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    align-items: center;
+  }
+
+  /* shared dot style for heatmap and legend */
+  .hm-dot {
+    width: 14px;
+    height: 14px;
+    cursor: help;
+    flex-shrink: 0;
+  }
+  .hm-empty {
+    background: var(--bg-tertiary);
+    opacity: 0.3;
+    border-radius: 3px;
+  }
+  .status-0 {
+    background: #00b2e3;
+    border-radius: 50%;
+  } /* Presente: Circle */
+  .status-1 {
+    background: #ffd700;
+    border-radius: 2px;
+  } /* Ausente: Square */
+  .status-2 {
+    background: #00da9f;
+    border-radius: 0;
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  } /* Licencia: Diamond */
+
+  /* ---- Votes List ---- */
+  .votes-section {
+    padding-top: 0.5rem;
+  }
+  .votes-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+  .vote-count-badge {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.15em 0.6em;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+  }
+  .vote-search,
+  .filter-group select {
+    padding: 0.55rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 0.9rem;
+    min-width: 0;
+    outline: none;
+    width: 100%;
+    transition: border-color var(--transition-fast);
+  }
+  .vote-search:focus,
+  .filter-group select:focus {
+    border-color: var(--accent-color);
+  }
+
+  .filters {
+    display: grid;
+    gap: 1rem;
+  }
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .filter-group label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .vote-list-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 500px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+  }
+  @media (min-width: 900px) {
+    .votes-history-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .votes-history-card .votes-section {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+    .votes-history-card .vote-list-scroll {
+      flex: 1;
+      max-height: none;
+      min-height: 0;
+    }
+  }
+  .vote-list-scroll::-webkit-scrollbar {
+    width: 5px;
+  }
+  .vote-list-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+  }
+
+  .vote-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: inherit;
+    transition: border-color var(--transition-fast);
+    text-decoration: none;
+  }
+  .vote-row:hover {
+    border-color: var(--accent-color);
+  }
+  .vote-row-left {
+    flex-shrink: 0;
+    width: 90px;
+    display: flex;
+    justify-content: center;
+  }
+  .vote-row-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+
+  .vote-type-pill {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.25em 0.6em;
+    border-radius: 999px;
+    border: 1px solid;
+    white-space: nowrap;
+    width: 100%;
+    text-align: center;
+  }
+  .vote-subject-text {
+    font-size: 0.85rem;
+    line-height: 1.35;
+    color: var(--text-light);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .vote-date {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 760px) {
+    .stats-grid {
+      gap: 1rem;
+    }
+    .profile-header {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 1.15rem;
+      gap: 1rem;
+    }
+    .profile-photo {
+      width: 100px;
+      height: 100px;
+    }
+    .profile-info h1 {
+      font-size: 1.5rem;
+    }
+    .profile-info {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .profile-meta {
+      grid-template-columns: 1fr;
+    }
+    .meta-item {
+      grid-template-columns: auto 1fr;
+      justify-items: stretch;
+      text-align: left;
+    }
+    .meta-value {
+      justify-content: flex-end;
+    }
+    .section-card {
+      padding: 1rem;
+    }
+    .heatmap-months {
+      grid-template-columns: repeat(6, 1fr);
+    }
+    .vote-row {
+      flex-wrap: wrap;
+    }
+    .vote-row-center {
+      width: 100%;
+    }
+    .votes-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .vote-search {
+      min-width: 0;
+      width: 100%;
+    }
+  }
+</style>

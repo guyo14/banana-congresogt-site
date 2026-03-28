@@ -1,0 +1,420 @@
+---
+import CongressmanActionCard from "./CongressmanActionCard.astro";
+import ExpandableGroup from "./ExpandableGroup.astro";
+import { getBlockImagePath, getPartyImagePath } from "../lib/paths.ts";
+
+export interface MemberAction {
+  congressman_id: number;
+  first_name: string;
+  last_name: string;
+  party_id: number;
+  party_name: string;
+  district_id: number;
+  district_name: string;
+  block_id: number;
+  block_name: string;
+  action_value: number;
+}
+
+export interface ActionDef {
+  label: string;
+  color: string;
+}
+
+export interface FilterDef {
+  value: number;
+  label: string;
+}
+
+interface Props {
+  members: MemberAction[];
+  actionMap: Record<number, ActionDef>;
+  filters: FilterDef[];
+}
+
+const { members, actionMap, filters } = Astro.props;
+
+// Grouping utility specifically adapted for dynamic semantic actions
+function groupMembersByKey(
+  list: MemberAction[],
+  keyFn: (v: MemberAction) => string,
+  metaFn: (v: MemberAction) => { id: number; name: string; icon?: string }
+) {
+  const map: Record<
+    string,
+    {
+      id: string;
+      name: string;
+      icon?: string;
+      // Store action counts dynamically: Record<action_value, count>
+      actionCounts: Record<number, number>;
+      members: MemberAction[];
+    }
+  > = {};
+
+  for (const v of list) {
+    const key = keyFn(v);
+    if (!map[key]) {
+      const meta = metaFn(v);
+      map[key] = {
+        id: key,
+        name: meta.name,
+        icon: meta.icon,
+        actionCounts: {},
+        members: [],
+      };
+      // Initialize counters based on the available filters
+      for (const filter of filters) {
+        map[key].actionCounts[filter.value] = 0;
+      }
+    }
+    
+    map[key].members.push(v);
+    
+    if (map[key].actionCounts[v.action_value] !== undefined) {
+      map[key].actionCounts[v.action_value]++;
+    } else {
+      map[key].actionCounts[v.action_value] = 1;
+    }
+  }
+
+  // Sort by total participants descending
+  return Object.values(map).sort((a, b) => b.members.length - a.members.length);
+}
+
+// Generate the grouped datasets
+const districtsGrouped = groupMembersByKey(
+  members,
+  (v) => `dist-${v.district_id}`,
+  (v) => ({ id: v.district_id, name: v.district_name, icon: "/distritos/map.svg" })
+);
+
+const blocksGrouped = groupMembersByKey(
+  members,
+  (v) => `block-${v.block_id}`,
+  (v) => ({
+    id: v.block_id,
+    name: v.block_name,
+    icon: v.block_id !== -1 ? getBlockImagePath(v.block_id) : undefined,
+  })
+);
+
+const partiesGrouped = groupMembersByKey(
+  members,
+  (v) => `party-${v.party_id}`,
+  (v) => ({ id: v.party_id, name: v.party_name, icon: getPartyImagePath(v.party_id) })
+);
+
+// Helper to reliably construct standard stats objects for ExpandableGroup
+function buildStatsArray(actionCounts: Record<number, number>) {
+  return filters.map(f => ({
+    count: actionCounts[f.value] || 0,
+    label: actionMap[f.value]?.label || String(f.value),
+    color: actionMap[f.value]?.color || "#ccc"
+  }));
+}
+---
+
+<div class="view-tabs" id="viewTabs">
+  <button class="view-tab active" data-view="diputados">Diputados</button>
+  <button class="view-tab" data-view="distritos">Distritos</button>
+  <button class="view-tab" data-view="bancadas">Bancadas</button>
+  <button class="view-tab" data-view="partidos">Partidos</button>
+</div>
+
+<div class="view-content" id="viewContainer">
+  
+  <!-- DIPUTADOS VIEW -->
+  <div class="view-panel active" id="view-diputados">
+    <div class="view-controls">
+      <div class="action-filters">
+        <button class="action-filter active" data-filter="all">Todos</button>
+        {filters.map((f) => (
+          <button class="action-filter" data-filter={String(f.value)}>{f.label}</button>
+        ))}
+      </div>
+      <input type="text" id="memberSearch" placeholder="Buscar diputado..." />
+    </div>
+    
+    <div class="action-card-grid" id="memberGrid">
+      {members.map((v) => {
+        const actionDef = actionMap[v.action_value] || { label: 'Desconocido', color: '#ccc' };
+        return (
+          <div class="member-wrapper" data-name={`${v.first_name} ${v.last_name}`.toLowerCase()} data-action={String(v.action_value)}>
+            <CongressmanActionCard
+              id={v.congressman_id}
+              name={`${v.first_name} ${v.last_name}`}
+              subtitle={v.party_name}
+              indicatorColor={actionDef.color}
+              indicatorLabel={actionDef.label}
+            />
+          </div>
+        );
+      })}
+    </div>
+  </div>
+
+  <!-- DISTRITOS VIEW -->
+  <div class="view-panel" id="view-distritos">
+    {districtsGrouped.map((g) => (
+      <ExpandableGroup id={g.id} title={g.name} iconPath={g.icon} stats={buildStatsArray(g.actionCounts)}>
+        <div class="action-card-grid">
+          {g.members.map((m) => {
+            const actionDef = actionMap[m.action_value] || { label: 'Desconocido', color: '#ccc' };
+            return (
+              <CongressmanActionCard
+                id={m.congressman_id}
+                name={`${m.first_name} ${m.last_name}`}
+                subtitle={m.party_name}
+                indicatorColor={actionDef.color}
+                indicatorLabel={actionDef.label}
+              />
+            );
+          })}
+        </div>
+      </ExpandableGroup>
+    ))}
+  </div>
+
+  <!-- BANCADAS VIEW -->
+  <div class="view-panel" id="view-bancadas">
+    {blocksGrouped.map((g) => (
+      <ExpandableGroup id={g.id} title={g.name} iconPath={g.icon} stats={buildStatsArray(g.actionCounts)}>
+        <div class="action-card-grid">
+          {g.members.map((m) => {
+            const actionDef = actionMap[m.action_value] || { label: 'Desconocido', color: '#ccc' };
+            return (
+              <CongressmanActionCard
+                id={m.congressman_id}
+                name={`${m.first_name} ${m.last_name}`}
+                subtitle={m.district_name}
+                indicatorColor={actionDef.color}
+                indicatorLabel={actionDef.label}
+              />
+            );
+          })}
+        </div>
+      </ExpandableGroup>
+    ))}
+  </div>
+
+  <!-- PARTIDOS VIEW -->
+  <div class="view-panel" id="view-partidos">
+    {partiesGrouped.map((g) => (
+      <ExpandableGroup id={g.id} title={g.name} iconPath={g.icon} stats={buildStatsArray(g.actionCounts)}>
+        <div class="action-card-grid">
+          {g.members.map((m) => {
+            const actionDef = actionMap[m.action_value] || { label: 'Desconocido', color: '#ccc' };
+            return (
+              <CongressmanActionCard
+                id={m.congressman_id}
+                name={`${m.first_name} ${m.last_name}`}
+                subtitle={m.district_name}
+                indicatorColor={actionDef.color}
+                indicatorLabel={actionDef.label}
+              />
+            );
+          })}
+        </div>
+      </ExpandableGroup>
+    ))}
+  </div>
+
+</div>
+
+<script>
+  // Setup Tab Switching
+  // Wait, if there are multiple of these on page, querySelectorAll gets all of them.
+  // To make it truly isolated if you theoretically had multiple wrappers per page, you'd scope it.
+  // But for this project, there's exactly 1 generic view-container set per detail page.
+  const viewTabs = document.querySelectorAll<HTMLButtonElement>('.view-tab');
+  const viewPanels = document.querySelectorAll<HTMLElement>('.view-panel');
+
+  viewTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      // Update active tab within the same container roughly, or globally if only 1 exists
+      viewTabs.forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      const targetView = tab.dataset.view;
+      viewPanels.forEach((panel) => {
+        if (panel.id === `view-${targetView}`) {
+          panel.classList.add('active');
+        } else {
+          panel.classList.remove('active');
+        }
+      });
+    });
+  });
+
+  // Expandable Accordions setup — ensure we check if event is already mapped to avoid doubles
+  // We use event delegation on closest expandable-group to be safe.
+  const expandHeaders = document.querySelectorAll<HTMLElement>('.eg-header');
+  expandHeaders.forEach(header => {
+    header.addEventListener('click', () => {
+      const group = header.closest('.expandable-group');
+      if (group) {
+        const isOpen = group.classList.toggle('is-open');
+        header.setAttribute('aria-expanded', String(isOpen));
+      }
+    });
+
+    header.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        header.click();
+      }
+    });
+  });
+
+  // Member search and filters (Diputados View)
+  const memberSearch = document.getElementById('memberSearch') as HTMLInputElement | null;
+  const actionFilters = document.querySelectorAll<HTMLButtonElement>('.action-filter');
+  const memberWrappers = document.querySelectorAll<HTMLElement>('.member-wrapper');
+
+  let activeActionFilter = 'all';
+
+  function applyFilters() {
+    const q = memberSearch ? memberSearch.value.toLowerCase().trim() : '';
+
+    memberWrappers.forEach((wrapper) => {
+      const matchesText = !q || wrapper.dataset.name!.includes(q);
+      const matchesAction = activeActionFilter === 'all' || wrapper.dataset.action === activeActionFilter;
+      wrapper.style.display = (matchesText && matchesAction) ? 'block' : 'none';
+    });
+  }
+
+  if (memberSearch) {
+    memberSearch.addEventListener('input', applyFilters);
+  }
+
+  actionFilters.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      actionFilters.forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeActionFilter = btn.dataset.filter!;
+      applyFilters();
+    });
+  });
+</script>
+
+<style>
+  .view-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .view-tab {
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+  }
+  .view-tab:hover {
+    color: var(--text-main);
+    border-color: var(--border-color);
+  }
+  .view-tab.active {
+    background: var(--accent-color);
+    color: #fff;
+    border-color: var(--accent-color);
+  }
+
+  .view-content {
+    margin-top: 1rem;
+    min-height: 400px;
+  }
+
+  .view-panel {
+    display: none;
+  }
+  .view-panel.active {
+    display: block;
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .view-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .action-filters {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .action-filter {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+  }
+  .action-filter:hover {
+    border-color: var(--accent-color);
+    color: var(--text-light);
+  }
+  .action-filter.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #fff;
+  }
+
+  #memberSearch {
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 0.95rem;
+    min-width: 280px;
+    outline: none;
+    transition: border-color var(--transition-fast);
+  }
+  #memberSearch:focus {
+    border-color: var(--accent-color);
+  }
+
+  .action-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.75rem;
+  }
+
+  @media (max-width: 640px) {
+    .view-controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    #memberSearch {
+      min-width: unset;
+      width: 100%;
+    }
+    .action-card-grid {
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    }
+  }
+</style>

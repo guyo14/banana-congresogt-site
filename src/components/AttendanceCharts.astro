@@ -1,0 +1,69 @@
+---
+import DoughnutChart from "./DoughnutChart.astro";
+import BarChart from "./BarChart.astro";
+import { ATTENDANCE_STATUS_STRING } from "../lib/mappers.ts";
+
+interface Props {
+  total: {
+    present: number;
+    absent: number;
+    license: number;
+  };
+  byYear: {
+    period: string;
+    present: number;
+    absent: number;
+    license: number;
+  }[];
+}
+const { total, byYear } = Astro.props;
+---
+
+<section class="section-card glass-panel">
+  <h2 class="section-title">Asistencia</h2>
+  <DoughnutChart
+    title="Total"
+    labels={[
+      ATTENDANCE_STATUS_STRING.PRESENT,
+      ATTENDANCE_STATUS_STRING.LICENSE,
+      ATTENDANCE_STATUS_STRING.ABSENT,
+    ]}
+    data={[total.present, total.license, total.absent]}
+  />
+
+  <BarChart
+    title="Por Año"
+    periods={byYear.map((s) => s.period)}
+    datasets={[
+      {
+        label: ATTENDANCE_STATUS_STRING.PRESENT,
+        data: byYear.map((s) => s.present),
+      },
+      {
+        label: ATTENDANCE_STATUS_STRING.LICENSE,
+        data: byYear.map((s) => s.license),
+      },
+      {
+        label: ATTENDANCE_STATUS_STRING.ABSENT,
+        data: byYear.map((s) => s.absent),
+      },
+    ]}
+  />
+</section>
+
+<style>
+  .section-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    border-radius: 12px;
+  }
+  .section-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.25rem;
+    margin-top: 0;
+  }
+</style>

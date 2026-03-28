@@ -1,0 +1,96 @@
+---
+import { getCongressmanPhotoPath, getCongressmanPath } from '../lib/paths.ts';
+
+interface Props {
+  id: number;
+  name: string;
+  subtitle?: string;
+  
+  // Visual indicators for the action (vote or attendance)
+  indicatorColor: string;
+  indicatorLabel?: string;
+}
+
+const { id, name, subtitle, indicatorColor, indicatorLabel } = Astro.props;
+
+// Use indicatorLabel as the subtitle if subtitle is not provided, 
+// per user's request to "put the action instead of the party".
+const displaySubtitle = indicatorLabel || subtitle;
+---
+
+<a href={getCongressmanPath(id)} class="member-card" style={`border-left: 3px solid ${indicatorColor};`}>
+  <div class="member-photo">
+    <img src={getCongressmanPhotoPath(id)} alt={name} loading="lazy" />
+    <span class="status-indicator" style={`background-color: ${indicatorColor};`} title={indicatorLabel}></span>
+  </div>
+  <div class="member-info">
+    <span class="member-name">{name}</span>
+    {displaySubtitle && <span class="member-subtitle" style={`color: ${indicatorColor};`}>{displaySubtitle}</span>}
+  </div>
+</a>
+
+<style>
+  .member-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    border-top: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: inherit;
+    transition: all var(--transition-fast);
+  }
+  .member-card:hover {
+    border-color: var(--accent-color);
+    transform: translateX(3px);
+  }
+
+  .member-photo {
+    position: relative;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+  }
+  .member-photo img {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--bg-tertiary);
+  }
+  .status-indicator {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-secondary);
+  }
+
+  .member-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+    flex: 1;
+  }
+  .member-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-light);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .member-subtitle {
+    font-size: 0.72rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 600;
+  }
+</style>

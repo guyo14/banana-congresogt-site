@@ -1,35 +1,18 @@
-import os
-import subprocess
-import sys
+from . import db, scraper, transform_data
+from .logger import Log
 
-def run_script(script_name):
-    print(f"=========================================")
-    print(f"Running {script_name}...")
-    print(f"=========================================")
-    
-    script_path = os.path.join(os.path.dirname(__file__), script_name)
-    try:
-        # Run the script using the same python executable
-        subprocess.run([sys.executable, script_path], check=True)
-        print(f"Successfully completed {script_name}.\n")
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing {script_name}!")
-        print(f"Exit code: {e.returncode}")
-        sys.exit(e.returncode)
+async def run_pipeline():
+    Log.info(f"Starting pipeline")
+    session_id = db.get_last_session()
+    Log.info(f"Last session registered: {session_id}")
 
-def main():
-    print("Starting Data Pipeline Orchestration\n")
-    
-    # 1. Scrape data (Uncomment if needed, or pass arguments)
-    # run_script("scraper.py")
-    
-    # 2. Export raw tables from Postgres to CSV
-    run_script("export_backup.py")
-    
-    # 3. Transform data and generate advanced stats & similarity matrix
-    run_script("transform_data.py")
-    
-    print("Pipeline finished successfully!")
+    Log.info("Running scraper...")
+    if session_id is None:
+        await scraper.run_scraper()
+    else:
+        await scraper.run_scraper(session_start=session_id + 1)
 
-if __name__ == "__main__":
-    main()
+    Log.info("Running data transformation...")
+    transform_data.run_transform()
+
+    Log.info(f"Pipeline completed")

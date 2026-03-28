@@ -5,7 +5,7 @@ BEGIN
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'session_type') THEN
-        CREATE TYPE session_type AS ENUM ('ordinaria', 'extraordinaria', 'solemne');
+        CREATE TYPE session_type AS ENUM ('ordinary', 'extraordinary', 'solemn');
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_status') THEN

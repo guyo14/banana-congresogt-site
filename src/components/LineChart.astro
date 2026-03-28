@@ -1,0 +1,94 @@
+---
+interface Props {
+  labels: string[];
+  datasets: {
+    label: string;
+    data: number[];
+  }[];
+  title?: string;
+  yMax?: number;
+  colors?: string[];
+}
+
+const { labels, datasets, title, yMax, colors } = Astro.props;
+
+const uniqueId = Math.random().toString(36).substring(2, 9);
+const chartId = `lineChart-${uniqueId}`;
+const legendId = `lineLegend-${uniqueId}`;
+---
+
+<div class="line-component banana-chart-container">
+  <span
+    class="banana-chart-data"
+    style="display:none;"
+    data-type="line"
+    data-chart={chartId}
+    data-legend={legendId}
+    data-labels={JSON.stringify(labels)}
+    data-datasets={JSON.stringify(datasets)}
+    data-y-max={yMax ? String(yMax) : ""}
+    data-colors={colors ? JSON.stringify(colors) : ""}></span>
+
+  {
+    title && (
+      <h3 class="sub-title" style="margin-top: 0;">
+        {title}
+      </h3>
+    )
+  }
+
+  <div class="line-layout">
+    <div class="chart-box line-chart-box">
+      <canvas id={chartId}></canvas>
+    </div>
+    <div class="legend-side line-legend-side">
+      <div id={legendId} class="donut-legend-wrap"></div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .line-component {
+    width: 100%;
+    margin-bottom: 2rem;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .sub-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .line-layout {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.5rem;
+    align-items: center;
+  }
+  .chart-box {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+  }
+  .line-chart-box {
+    height: 260px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .legend-side {
+    flex: 1;
+    min-width: 240px;
+    width: 100%;
+    max-width: 450px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+</style>
+<script src="../scripts/chart-processing.ts"></script>

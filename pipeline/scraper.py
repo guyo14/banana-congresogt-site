@@ -1,14 +1,83 @@
 import asyncio
-import json
 import bs4
 import re
-import argparse
 from datetime import datetime
 from playwright.async_api import async_playwright
-import db
-from logger import Log
+import unicodedata
+from . import db
+from .logger import Log
+
+# Mapping from normalized profile strings to database IDs
+BLOCK_MAP = {
+    "bienestarnacional-bien": 17,
+    "cabal-cabal": 2,
+    "compromiso,renovacionyorden-creo": 6,
+    "comunidadelefante-elefante": 3,
+    "movimientopoliticowinaq-unidadrevolucionarianacionalguatemalteca-winaq-urng-maiz": 14,
+    "partidoazul-azul": 16,
+    "partidopoliticonosotros-nosotros": 13,
+    "partidopoliticovisionconvalores-viva": 7,
+    "partidounionista-pu": 9,
+    "todos-todos": 5,
+    "unidadnacionaldelaesperanza-une": 11,
+    "valor-valor": 8,
+    "vamosporunaguatemaladiferente-vamos": 4,
+    "victoria-victoria": 12,
+    "voluntad,oportunidadysolidaridad-vos": 10,
+    "cambio-cambio": 15,
+}
+
+DISTRICT_MAP = {
+    "altaverapaz": 1,
+    "bajaverapaz": 2,
+    "chimaltenango": 4,
+    "chiquimula": 5,
+    "distritocentral": 3,
+    "elprogreso": 6,
+    "escuintla": 7,
+    "guatemala": 8,
+    "huehuetenango": 9,
+    "izabal": 10,
+    "jalapa": 11,
+    "jutiapa": 12,
+    "listanacional": 13,
+    "peten": 14,
+    "quetzaltenango": 15,
+    "quiche": 16,
+    "retalhuleu": 17,
+    "sacatepequez": 18,
+    "sanmarcos": 19,
+    "santarosa": 20,
+    "solola": 21,
+    "suchitepequez": 22,
+    "totonicapan": 23,
+    "zacapa": 24,
+}
 
 BASE_URL = "https://www.congreso.gob.gt"
+
+def normalize_string(s):
+    if not s:
+        return ""
+    # Lowercase
+    s = s.lower()
+    # Remove accents
+    s = ''.join(c for c in unicodedata.normalize('NFD', s)
+               if unicodedata.category(c) != 'Mn')
+    # Remove spaces
+    s = s.replace(" ", "")
+    return s
+
+def remove_unnecessary_spaces(string):
+    return " ".join(string.split())
+
+def match_congressman(congressman_name, congressmen_dict):
+    norm_name = normalize_string(congressman_name)
+
+    if norm_name in congressmen_dict:
+        return congressmen_dict[norm_name]
+
+    return None
 
 async def get_browser_context(p):
     browser = await p.chromium.launch(headless=True)
@@ -16,40 +85,6 @@ async def get_browser_context(p):
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
     return browser, context
-
-async def fetch_congressmen():
-    """Fetches the master list of congressmen from the JSON API."""
-    async with async_playwright() as p:
-        browser, context = await get_browser_context(p)
-        page = await context.new_page()
-        
-        # Get Incapsula clearance by visiting the directory page first
-        try:
-            await page.goto(f"{BASE_URL}/buscador_diputados", wait_until="domcontentloaded", timeout=15000)
-            await asyncio.sleep(2)
-        except:
-            pass
-            
-        result = await page.evaluate('''async () => {
-            const response = await fetch("/ctrl_website/finder_diputies", { 
-                method: "POST", 
-                body: JSON.stringify({"target": ""}),
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-Requested-With": "XMLHttpRequest"
-                }
-            });
-            return await response.text();
-        }''')
-        
-        await browser.close()
-        
-        try:
-            data = json.loads(result)
-            return data
-        except:
-            Log.error("Failed to fetch congressmen JSON.")
-            return []
 
 async def fetch_sessions(session_start):
     """Fetches the list of recent sessions and stops when parsing historical sessions below session_start."""
@@ -94,7 +129,19 @@ async def fetch_sessions(session_start):
                             continue    
 
                     if session_id >= session_start:
-                        type = cols[0].text.strip()
+                        raw_type = cols[0].text.strip().lower()
+                        # Map to English enum immediately
+                        type_map = {
+                            "ordinaria": "ordinary",
+                            "extraordinaria": "extraordinary",
+                            "solemne": "solemn"
+                        }
+                        if raw_type not in type_map:
+                            Log.error(f"Unknown session type '{raw_type}' for session {session_id}. Defaulting to 'ordinary'.")
+                            session_type = "ordinary"
+                        else:
+                            session_type = type_map[raw_type]
+
                         number_text = cols[1].text.strip()
                         number = None
                         try:
@@ -114,16 +161,16 @@ async def fetch_sessions(session_start):
                                 Log.error(f"Failed to parse session date for {session_id}")
                                 continue
                         
-                        # Use raw tipo instead of mapped IDs.
+                        # Use mapped session_type.
                         sessions.append({
                             "id": session_id,
-                            "type": type,
+                            "type": session_type,
                             "session_number": number,
                             "start_date": session_date
                         })
-                        Log.debug(f"fetch_{session_id} Added: {type} {number}")
+                        Log.debug(f"fetch_{session_id} Added: {session_type} {number}")
                     else:
-                        Log.debug(f"fetch_{session_id} Skipped: {type} {number}")
+                        Log.debug(f"fetch_{session_id} skipped")
                 else:
                     Log.error(f"Invalid session row found")
             await browser.close()
@@ -222,9 +269,9 @@ async def fetch_attendance(session_id, session_type_id, congressmen_dict):
                     raw_name = cols[0].text.strip()
                     
                     status = None
-                    if "PRESENTE" in cols[1].text: status = "presente"
-                    elif "AUSENTE" in cols[2].text: status = "ausente"
-                    elif "LICENCIA" in cols[3].text: status = "licencia_excusa"
+                    if "PRESENTE" in cols[1].text: status = "present"
+                    elif "AUSENTE" in cols[2].text: status = "absent"
+                    elif "LICENCIA" in cols[3].text: status = "license"
                     
                     if not status:
                         Log.error(f"Unknown attendance status for '{raw_name}' in session {session_id}")
@@ -277,10 +324,10 @@ async def fetch_votes(voting_id, session_id, congressmen_dict):
 
             # The tabs are FAVOR, CONTRA, AUSENCIA, LICENCIA/EXCUSA
             tabs = [
-                ("a_favor", "presente", 0, "congreso_a_favor_length"),
-                ("en_contra", "presente", 1, "congreso_contra_length"),
-                ("ausente", "ausente", 2, "congreso_votos_nulos_length"),
-                ("ausente", "licencia_excusa", 3, "congreso_licencia_length")
+                ("in_favor", "present", 0, "congreso_a_favor_length"),
+                ("against", "present", 1, "congreso_contra_length"),
+                ("absent", "absent", 2, "congreso_votos_nulos_length"),
+                ("absent", "license", 3, "congreso_licencia_length")
             ]
 
             # Expand all 4 DataTables in parallel using Playwright
@@ -294,7 +341,7 @@ async def fetch_votes(voting_id, session_id, congressmen_dict):
             except:
                 pass
 
-            # Re-parse HTML after expanding all length selectors
+            # Reparse HTML after expanding all length selectors
             html = await page.content()
             soup = bs4.BeautifulSoup(html, "html.parser")
             tab_panes = soup.select(".tab-content .tab-pane")
@@ -304,7 +351,7 @@ async def fetch_votes(voting_id, session_id, congressmen_dict):
 
             for vote_type, att_status, tab_index, select_name in tabs:
                 pane = tab_panes[tab_index]
-                # Find table in this pane
+                # Find the table in this pane
                 tbody = pane.find("tbody")
                 if tbody:
                     for row in tbody.find_all("tr"):
@@ -329,112 +376,19 @@ async def fetch_votes(voting_id, session_id, congressmen_dict):
             await browser.close()
             return []
 
-def remove_unnecessary_spaces(string):
-    return " ".join(string.split())
-
-def normalize_name(name):
-    # Normalizing by lowercasing and removing extra spaces for matching.
-    return remove_unnecessary_spaces(name).lower()
-
-def match_congressman(congressman_name, congressmen_dict):
-    norm_name = normalize_name(congressman_name)
-    
-    if norm_name in congressmen_dict:
-        return congressmen_dict[norm_name]
-
-    return None
-
-async def load_congressmen_data():
-    Log.info("Fetching Master Congressmen List...")
-    congressmen_raw = await fetch_congressmen()
-    congressmen_dict = {}
-    congressmen_tuples = []
-    parties = {}
-    blocks = {}
-    districts = {}
-
-    for c in congressmen_raw:
-        c_id = int(c["id_diputado"])
-        first_name = remove_unnecessary_spaces(c['nombres'])
-        last_name = remove_unnecessary_spaces(c['apellidos'])
-        key = f"{last_name} {first_name}".lower()
-
-        birth_date = None
-        if "fecha_nacimiento" in c and c["fecha_nacimiento"] and c["fecha_nacimiento"] != "0000-00-00":
-            birth_date = c["fecha_nacimiento"]
-
-        # Handle party (bancada/bloque in API)
-        p_id = None
-        block_id = None
-        if c.get("id_bloque"):
-            try:
-                p_id = int(c["id_bloque"])
-                block_id = p_id  # In the API, bloque represents both party and block
-            except:
-                Log.error(f"Invalid party ID for congressman {c_id}")
-                continue
-
-            party_name = c.get("nombre_bloque", "Unknown")
-            if p_id not in parties:
-                parties[p_id] = {
-                    'name': party_name,
-                    'short_name': party_name,  # API doesn't provide separate short_name
-                    'block_id': block_id
-                }
-
-            if block_id not in blocks:
-                blocks[block_id] = {
-                    'name': party_name,
-                    'short_name': party_name
-                }
-
-        d_id = None
-        if c.get("id_distrito"):
-            try: d_id = int(c["id_distrito"])
-            except:
-                Log.error(f"Invalid district ID for congressman {c_id}")
-                continue
-            districts[d_id] = districts[d_id] if d_id in districts and districts[d_id] else c["nombre_distrito"]
-
-        congressmen_dict[key] = c_id
-        congressmen_tuples.append((c_id, first_name, last_name, key, p_id, d_id, birth_date, 'active', block_id))
-
-    # Insert blocks first (parties reference blocks)
-    if blocks:
-        Log.info(f"Inserting {len(blocks)} blocks.")
-        block_tuples = [(block_id, info['name'], info['short_name']) for block_id, info in blocks.items()]
-        db.insert_blocks(block_tuples)
-
-    if parties:
-        Log.info(f"Inserting {len(parties)} parties.")
-        party_tuples = [(party_id, info['name'], info['short_name'], info['block_id']) for party_id, info in parties.items()]
-        db.insert_parties(party_tuples)
-
-    if districts:
-        for district_id, district_name in districts.items():
-            if not district_name:
-                Log.error(f"Invalid district name for district ID {district_id}")
-                districts[district_id] = "Unknown"
-        Log.info(f"Inserting {len(districts)} districts.")
-        db.insert_districts(list(districts.items()))
-
-    Log.info(f"Inserting {len(congressmen_tuples)} congressmen.")
-    db.insert_congressmen(congressmen_tuples)
-    return congressmen_dict
-
 async def load_attendance_data(congressmen_dict, sessions):
     for session in sessions:
         s_id = session["id"]
         Log.info(f"Fetching Attendance for Session {s_id}...")
-        session_type = session["type"].lower()
-        if session_type == "ordinaria":
+        session_type = session["type"]
+        if session_type == "ordinary":
             session_type_id = 1
-        elif session_type == "extraordinaria":
+        elif session_type == "extraordinary":
             session_type_id = 2
-        elif session_type == "solemne":
+        elif session_type == "solemn":
             session_type_id = 3
         else:
-            Log.error(f"Unknown session type '{session_type}' for session {s_id}. Falling back to 1 (ordinaria).")
+            Log.error(f"Unknown session type '{session_type}' for session {s_id}. Falling back to 1 (ordinary).")
             session_type_id = 1 # Fallback just in case
         attendances = await fetch_attendance(s_id, session_type_id, congressmen_dict)
         if len(attendances) != 160:
@@ -461,25 +415,90 @@ async def load_voting_data(congressmen_dict, sessions):
             if vote_tuples:
                 db.insert_votes(vote_tuples)
 
-async def main():
+async def update_congressmen_info(congressmen_dict):
+    """
+    Visits the profile page of every active congressman and extracts the
+    Block and District they represent.
+    For now, it prints out the distinct strings so the user can map them.
+    """
+    Log.info("Extracting block and district for all congressmen sequentially...")
+    unique_ids = list(set(congressmen_dict.values()))
+    
+    unique_blocks = set()
+    unique_districts = set()
+
+    async with async_playwright() as p:
+        browser, context = await get_browser_context(p)
+        
+        for i, cid in enumerate(unique_ids, 1):
+            page = await context.new_page()
+            try:
+                # 30s timeout, wait until page finishes loading
+                await page.goto(f"{BASE_URL}/perfil_diputado/{cid}", wait_until="domcontentloaded", timeout=30000)
+                # wait a little explicitly so we bypass cloudflare challenges
+                await asyncio.sleep(0.5)
+                html = await page.content()
+                soup = bs4.BeautifulSoup(html, "html.parser")
+                b, d = None, None
+                
+                block_a = soup.find('a', href=re.compile(r'/perfil_bloques/'))
+                if block_a:
+                    b = block_a.text.strip()
+                    unique_blocks.add(b)
+                    
+                dist_th = soup.find('th', string=re.compile(r'Distrito al que\s*representa:'))
+                if dist_th:
+                    td = dist_th.find_next_sibling('td')
+                    if td:
+                        d = td.text.strip()
+                        unique_districts.add(d)
+                
+                # Perform mapping and database update
+                norm_b = normalize_string(b) if b else None
+                norm_d = normalize_string(d) if d else None
+                
+                b_id = BLOCK_MAP.get(norm_b) if norm_b else None
+                d_id = DISTRICT_MAP.get(norm_d) if norm_d else None
+                
+                if b and not b_id and (norm_b != "independiente-ind" or norm_b != "-"):
+                    Log.error(f"Mapping missing for Block: '{b}' (normalized: '{norm_b}')")
+                if d and not d_id:
+                    Log.error(f"Mapping missing for District: '{d}' (normalized: '{norm_d}')")
+                
+                if (b_id or norm_b == "independiente-ind") or d_id:
+                    db.update_congressman_profile(cid, b_id, d_id)
+                    Log.debug(f"Updated {cid} -> Block: {b_id} | District: {d_id}")
+                    
+            except Exception as e:
+                Log.error(f"Failed to fetch profile for {cid}: {e}")
+            finally:
+                await page.close()
+                
+            if i % 10 == 0:
+                Log.info(f"Processed {i}/{len(unique_ids)} profiles...")
+                
+        await browser.close()
+        
+    Log.info("=== UNIQUE BLOCKS FOUND ===")
+    for b in sorted(unique_blocks):
+        Log.info(f" - {b}")
+        
+    Log.info("=== UNIQUE DISTRICTS FOUND ===")
+    for d in sorted(unique_districts):
+        Log.info(f" - {d}")
+
+
+async def run_scraper(action="load_sessions", session_start=41168, log_level="INFO"):
+    """
+    Run the scraper with specified parameters.
+
+    Args:
+        action: Action to perform (all, load_congressmen, load_voting, load_attendance, update_congressmen)
+        session_start: Start session ID for fetching
+        log_level: Logging verbosity level (DEBUG, INFO, WARNING, ERROR)
+    """
     Log.init_file()
-    parser = argparse.ArgumentParser(description="Congress Data Crawler")
-    parser.add_argument("--action", choices=["all", "load_congressmen", "load_voting", "load_attendance"], default="all", help="Action to perform")
-    parser.add_argument("--session-start", type=int, default=41168, help="Start session ID for fetching (default: 41168)")
-    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO", help="Set the logging verbosity level (default: INFO)")
-    args = parser.parse_args()
-
-    # Apply configuration to logger
-    Log.set_level(args.log_level)
-
-    # Initialize DB (run schema.sql IF NOT EXISTS)
-    db.init_db()
-
-    # We always need the congressmen_dict to match names to IDs.
-    if args.action in ["load_congressmen"]:
-        congressmen_dict = await load_congressmen_data()
-        db.init_aliases()
-        return
+    Log.set_level(log_level)
 
     Log.info("Fetching congressmen in memory from database...")
     congressmen_dict = db.get_congressmen_dict()
@@ -487,9 +506,13 @@ async def main():
         Log.error("No congressmen found in the database. Please run with --action load_congressmen or all first.")
         return
 
-    if args.action in ["all", "load_voting", "load_attendance"]:
+    if action in ["all", "update_congressmen"]:
+        await update_congressmen_info(congressmen_dict)
+        return
+
+    if action in ["all", "load_voting", "load_attendance", "load_sessions"]:
         Log.info("Fetching Recent Sessions...")
-        sessions = await fetch_sessions(session_start=args.session_start)
+        sessions = await fetch_sessions(session_start=session_start)
         Log.debug(f"Fetched {len(sessions)} sessions. IDs: {[s['id'] for s in sessions]}")
 
         # In case we still need chronological processing for DB inserts
@@ -500,21 +523,13 @@ async def main():
             s_id = session["id"]
             Log.info(f"Process Session {s_id}: {session['type']} - No.: {session['session_number']} - Date: {session['start_date']}")
 
-            # Map unrecognized sessions to 'ordinaria' to fit enum, but we already warn later in attendance
-            session_type = session["type"].lower()
-            if session_type not in ["ordinaria", "extraordinaria", "solemne"]:
-                Log.error(f"Unknown session type '{session_type}' for session {s_id}. Defaulting to 'ordinaria' for DB enum constraint.")
-                session_type = "ordinaria"
-
+            session_type = session["type"]
             db.insert_session((s_id, session_type, session["session_number"], session["start_date"]))
 
-        if args.action in ["all", "load_attendance"]:
+        if action in ["all", "load_attendance", "load_sessions"]:
             await load_attendance_data(congressmen_dict, sessions)
 
-        if args.action in ["all", "load_voting"]:
+        if action in ["all", "load_voting", "load_sessions"]:
             await load_voting_data(congressmen_dict, sessions)
 
     Log.info("Crawl complete.")
-
-if __name__ == "__main__":
-    asyncio.run(main())

@@ -1,137 +1,212 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import db from '../../lib/db.js';
+import Layout from "../../layouts/Layout.astro";
+import db from "../../lib/db.ts";
+import type { NoParams } from "../../lib/types.ts";
+import {
+  getSessionTypeString,
+  MAJORITY,
+} from "../../lib/mappers.ts";
 
-// Fetch all votations — with outcome computed from vote totals at build time
-const voting = db.prepare(`
+interface VotingSummary {
+  id: number;
+  subject: string;
+  start_date: string;
+  session_number: number;
+  session_type: number;
+  period: string;
+  votes_in_favor: number;
+  votes_against: number;
+  votes_absent: number;
+  majority: number;
+}
+
+const voting = db
+  .prepare<[], VotingSummary>(
+    `
   SELECT
-    v.id, v.subject, v.start_date, s.session_number,
-    COALESCE(vas.total_favor, 0) AS total_favor,
-    COALESCE(vas.total_contra, 0) AS total_contra,
-    vas.is_approved
+    v.id, v.subject,
+    s.start_date, s.session_number, s.type AS session_type, s.period,
+    v.votes_in_favor, v.votes_against, v.votes_absent,
+    v.majority
   FROM voting v
   JOIN sessions s ON v.session_id = s.id
-  LEFT JOIN votation_aggregated_stats vas ON vas.voting_id = v.id
-  ORDER BY v.start_date DESC
-`).all();
+  ORDER BY s.start_date DESC, v.id DESC
+`,
+  )
+  .all();
 
-const formatDate = (dateString) => {
-  const options = { year: 'numeric', month: 'short', day: 'numeric' };
-  return new Date(dateString).toLocaleDateString('es-GT', options);
+// Distinct periods for filter dropdown
+const periods = [...new Set(voting.map((v) => v.period))].sort(
+  (a, b) => Number(b) - Number(a),
+);
+
+const formatDate = (dateString: string): string => {
+  const options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  };
+  return new Date(dateString).toLocaleDateString("es-GT", options);
 };
 ---
 
-<Layout title="Todas las Votaciones">
+<Layout title="Votaciones">
   <div class="page-header">
-    <h1>Hemeroteca de Votaciones</h1>
-    <p class="text-muted">Explora y filtra {voting.length} votaciones registradas en el Congreso.</p>
+    <h1>Votaciones</h1>
   </div>
 
-  <!-- Filter bar: text search + result filter -->
-  <div class="filters glass-panel">
-    <div class="filter-group" style="flex:1">
+  <!-- Filters — grid style matching sesiones/index.astro -->
+  <div class="filters">
+    <div class="filter-group" style="grid-column: span 2;">
       <label for="searchSubject">Buscar por Tema / Decreto</label>
-      <input type="text" id="searchSubject" placeholder="Ej. Presupuesto, Estado de Calamidad..." />
+      <input
+        type="text"
+        id="searchSubject"
+        placeholder="Ej. Presupuesto, Estado de Calamidad..."
+      />
     </div>
     <div class="filter-group">
-      <label>Resultado</label>
-      <div class="result-btns" id="resultFilter">
-        <button class="result-btn active" data-result="all">Todos</button>
-        <button class="result-btn aprobado" data-result="aprobado">✓ Aprobadas</button>
-        <button class="result-btn rechazado" data-result="rechazado">✗ Rechazadas</button>
-      </div>
+      <label for="filterPeriod">Período</label>
+      <select id="filterPeriod">
+        <option value="">---Todos---</option>
+        {periods.map((p) => <option value={p}>{p}</option>)}
+      </select>
+    </div>
+    <div class="filter-group">
+      <label for="filterMajority">Mayoría</label>
+      <select id="filterMajority">
+        <option value="">---Todas---</option>
+        <option value={String(MAJORITY.IN_FAVOR)}>Mayoría a favor</option>
+        <option value={String(MAJORITY.AGAINST)}>Mayoría en contra</option>
+        <option value={String(MAJORITY.TIE)}>Empate</option>
+      </select>
     </div>
   </div>
 
   <p class="results-count" id="resultsCount">{voting.length} votaciones</p>
 
   <div class="votation-list" id="votationList">
-    {voting.map((v, index) => {
-      const hasVotes    = (v.total_favor + v.total_contra) > 0;
-      const isApproved  = v.is_approved === 1 || v.is_approved === true;
-      const outcome     = !hasVotes ? 'sin_votos' : isApproved ? 'aprobado' : 'rechazado';
-      const badgeLabel  = !hasVotes ? 'Sin votos' : isApproved ? 'Aprobado' : 'Rechazado';
-      const badgeColor  = !hasVotes ? 'var(--text-muted)'
-                        : isApproved ? 'var(--color-favor)' : 'var(--color-contra)';
-      return (
-        <a
-          href={`/votaciones/${v.id}`}
-          class="votation-card glass-panel"
-          data-subject={v.subject.toLowerCase()}
-          data-outcome={outcome}
-        >
-          <div class="votation-number">#{voting.length - index}</div>
-          <div class="votation-info">
-            <h3>{v.subject}</h3>
-            <div class="meta-tags">
-              <span class="badge" style="background: var(--bg-tertiary)">Sesión {v.session_number}</span>
-              <span class="text-muted text-small">{formatDate(v.start_date)}</span>
+    {
+      voting.map((v, index) => {
+        const vTotal = v.votes_in_favor + v.votes_against + v.votes_absent;
+        const pctFavor =
+          vTotal > 0 ? ((v.votes_in_favor / vTotal) * 100).toFixed(1) : "0";
+        const pctContra =
+          vTotal > 0 ? ((v.votes_against / vTotal) * 100).toFixed(1) : "0";
+        const pctAbsent =
+          vTotal > 0 ? ((v.votes_absent / vTotal) * 100).toFixed(1) : "0";
+        const typeLabel = getSessionTypeString(v.session_type);
+        const sessionTag = `${v.period} Sesión ${typeLabel} No. ${v.session_number}`;
+
+        return (
+          <a
+            href={`/votaciones/${v.id}`}
+            class="votation-card glass-panel"
+            data-subject={v.subject.toLowerCase()}
+            data-period={v.period}
+            data-majority={String(v.majority)}
+          >
+            <div class="votation-number">#{voting.length - index}</div>
+            <div class="votation-info">
+              <h3>{v.subject}</h3>
+              <div class="meta-tags">
+                <span class="badge">{sessionTag}</span>
+                <span class="votation-date">
+                  {formatDate(v.start_date)}
+                </span>
+              </div>
             </div>
-          </div>
-          <!-- IMPROVEMENT 1: Outcome badge -->
-          <div class="outcome-block">
-            <span class="outcome-pill" style={`color:${badgeColor}; border-color:${badgeColor}; background:${badgeColor}22`}>
-              {badgeLabel}
-            </span>
-            {hasVotes && (
-              <span class="vote-tally">
-                <span style="color:var(--color-favor)">{v.total_favor}✓</span>
-                {' / '}
-                <span style="color:var(--color-contra)">{v.total_contra}✗</span>
-              </span>
-            )}
-          </div>
-        </a>
-      );
-    })}
+            <div class="vote-summary">
+              <div class="vs-row">
+                <span class="vs-dot" style="background:#00b2e3" />
+                <span class="vs-label">A Favor</span>
+                <strong class="vs-value">{v.votes_in_favor}</strong>
+                <span class="vs-pct">{pctFavor}%</span>
+              </div>
+              <div class="vs-row">
+                <span class="vs-dot" style="background:#00da9f" />
+                <span class="vs-label">En Contra</span>
+                <strong class="vs-value">{v.votes_against}</strong>
+                <span class="vs-pct">{pctContra}%</span>
+              </div>
+              <div class="vs-row">
+                <span class="vs-dot" style="background:#ffd700" />
+                <span class="vs-label">Ausente</span>
+                <strong class="vs-value">{v.votes_absent}</strong>
+                <span class="vs-pct">{pctAbsent}%</span>
+              </div>
+              <div class="vs-bar">
+                <div
+                  class="vs-seg"
+                  style={`width:${pctFavor}%; background:#00b2e3`}
+                />
+                <div
+                  class="vs-seg"
+                  style={`width:${pctContra}%; background:#00da9f`}
+                />
+                <div
+                  class="vs-seg"
+                  style={`width:${pctAbsent}%; background:#ffd700`}
+                />
+              </div>
+            </div>
+          </a>
+        );
+      })
+    }
   </div>
 </Layout>
 
-<!-- IMPROVEMENT 2: Combined text + result filtering -->
 <script>
-  const searchInput   = document.getElementById('searchSubject') as HTMLInputElement;
-  const resultBtns    = document.querySelectorAll<HTMLButtonElement>('.result-btn');
-  const cards         = document.querySelectorAll<HTMLElement>('.votation-card');
-  const resultsCount  = document.getElementById('resultsCount')!;
-
-  let activeResult = 'all';
+  const searchInput = document.getElementById(
+    "searchSubject",
+  ) as HTMLInputElement;
+  const filterPeriod = document.getElementById(
+    "filterPeriod",
+  ) as HTMLSelectElement;
+  const filterMajority = document.getElementById(
+    "filterMajority",
+  ) as HTMLSelectElement;
+  const cards = document.querySelectorAll<HTMLElement>(".votation-card");
+  const resultsCount = document.getElementById("resultsCount")!;
 
   function applyFilters() {
     const q = searchInput.value.toLowerCase().trim();
+    const periodVal = filterPeriod.value;
+    const majorityVal = filterMajority.value;
+
     let visible = 0;
-    cards.forEach(card => {
-      const matchText   = !q || card.dataset.subject!.includes(q);
-      const matchResult = activeResult === 'all' || card.dataset.outcome === activeResult;
-      const show = matchText && matchResult;
-      card.style.display = show ? 'flex' : 'none';
+
+    cards.forEach((card) => {
+      const matchText = !q || card.dataset.subject!.includes(q);
+      const matchPeriod = !periodVal || card.dataset.period === periodVal;
+      const matchMajority =
+        !majorityVal || card.dataset.majority === majorityVal;
+
+      const show = matchText && matchPeriod && matchMajority;
+      card.style.display = show ? "flex" : "none";
       if (show) visible++;
     });
+
     resultsCount.textContent = `${visible} votaciones`;
   }
 
-  searchInput.addEventListener('input', applyFilters);
-
-  resultBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      resultBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeResult = btn.dataset.result!;
-      applyFilters();
-    });
-  });
+  searchInput.addEventListener("input", applyFilters);
+  filterPeriod.addEventListener("change", applyFilters);
+  filterMajority.addEventListener("change", applyFilters);
 </script>
 
 <style>
-  .page-header { margin-bottom: 2rem; }
+  .page-header {
+    margin-bottom: 2rem;
+  }
 
-  /* Filter bar */
+  /* Filter grid — mirrors sesiones/index.astro */
   .filters {
-    display: flex;
-    align-items: flex-end;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 1.5rem;
-    margin-bottom: 1rem;
-    padding: 1.25rem 1.5rem;
-    flex-wrap: wrap;
+    margin-bottom: 2rem;
   }
 
   .filter-group {
@@ -141,51 +216,30 @@ const formatDate = (dateString) => {
   }
 
   .filter-group label {
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     color: var(--text-muted);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-weight: 500;
   }
 
-  .filter-group input {
-    padding: 0.65rem 0.9rem;
+  .filter-group input,
+  .filter-group select {
+    width: 100%;
+    padding: 0.75rem;
     border-radius: 8px;
     border: 1px solid var(--border-color);
     background: var(--bg-secondary);
     color: var(--text-main);
-    font-size: 0.95rem;
+    font-size: 1rem;
     font-family: inherit;
     outline: none;
-    min-width: 280px;
     transition: border-color var(--transition-fast);
   }
-  .filter-group input:focus { border-color: var(--accent-color); }
 
-  /* IMPROVEMENT 2: Result filter buttons */
-  .result-btns {
-    display: flex;
-    gap: 0.5rem;
+  .filter-group input:focus,
+  .filter-group select:focus {
+    border-color: var(--accent-color);
   }
 
-  .result-btn {
-    padding: 0.55rem 1rem;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-secondary);
-    color: var(--text-muted);
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    font-family: inherit;
-  }
-  .result-btn:hover { border-color: var(--accent-color); color: var(--text-light); }
-  .result-btn.active { background: var(--accent-color); border-color: var(--accent-color); color: #fff; }
-  .result-btn.aprobado.active { background: var(--color-favor); border-color: var(--color-favor); }
-  .result-btn.rechazado.active { background: var(--color-contra); border-color: var(--color-contra); }
-
-  /* Results count */
   .results-count {
     font-size: 0.82rem;
     color: var(--text-muted);
@@ -194,7 +248,11 @@ const formatDate = (dateString) => {
   }
 
   /* Votation list */
-  .votation-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  .votation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
 
   .votation-card {
     display: flex;
@@ -202,7 +260,9 @@ const formatDate = (dateString) => {
     gap: 1.25rem;
     padding: 1.1rem 1.5rem;
     color: inherit;
-    transition: border-color var(--transition-fast), transform var(--transition-fast);
+    transition:
+      border-color var(--transition-fast),
+      transform var(--transition-fast);
   }
 
   .votation-number {
@@ -220,39 +280,123 @@ const formatDate = (dateString) => {
     flex-shrink: 0;
   }
 
-  .votation-info { flex: 1; min-width: 0; }
-  .votation-info h3 { margin: 0 0 0.5rem 0; font-size: 1rem; line-height: 1.35; color: var(--text-light); }
+  .votation-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .votation-info h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+    line-height: 1.35;
+    color: var(--text-light);
+  }
 
-  .meta-tags { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-  .text-small { font-size: 0.82rem; }
+  .meta-tags {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
 
-  /* IMPROVEMENT 1: Outcome block */
-  .outcome-block {
+  .badge {
+    background: var(--bg-tertiary);
+    padding: 0.2em 0.65em;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .votation-date {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+  }
+
+  /* Vote summary — right side of card, matching sesiones/[id] pattern */
+  .vote-summary {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: 0.3rem;
+    gap: 0.25rem;
+    min-width: 200px;
     flex-shrink: 0;
-    min-width: 90px;
+  }
+
+  .vs-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+  }
+
+  .vs-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .vs-label {
+    color: var(--text-muted);
+    min-width: 65px;
+  }
+
+  .vs-value {
+    color: var(--text-light);
+    min-width: 24px;
     text-align: right;
   }
-  .outcome-pill {
-    font-size: 0.72rem;
-    font-weight: 700;
-    padding: 0.25em 0.75em;
-    border-radius: 999px;
-    border: 1px solid;
-    white-space: nowrap;
-  }
-  .vote-tally { font-size: 0.7rem; white-space: nowrap; }
 
-  .votation-card:hover { border-color: var(--accent-color); transform: translateX(5px); }
-  .votation-card:hover .votation-number { background: var(--accent-color); color: var(--bg-color); }
+  .vs-pct {
+    color: var(--text-muted);
+    min-width: 38px;
+    text-align: right;
+  }
+
+  .vs-bar {
+    display: flex;
+    height: 5px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--bg-tertiary);
+    margin-top: 0.2rem;
+  }
+
+  .vs-seg {
+    height: 100%;
+  }
+
+  /* Hover */
+  .votation-card:hover {
+    border-color: var(--accent-color);
+    transform: translateX(5px);
+  }
+  .votation-card:hover .votation-number {
+    background: var(--accent-color);
+    color: var(--bg-color);
+  }
+
+  /* Responsive */
+  @media (max-width: 960px) {
+    .filters {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
 
   @media (max-width: 640px) {
-    .filters { flex-direction: column; gap: 1rem; }
-    .filter-group input { min-width: unset; width: 100%; }
-    .votation-card { gap: 0.75rem; }
-    .outcome-block { min-width: 74px; }
+    .filters {
+      grid-template-columns: 1fr;
+    }
+    .filter-group[style*="span 2"] {
+      grid-column: span 1;
+    }
+    .votation-card {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .vote-summary {
+      min-width: unset;
+      width: 100%;
+    }
   }
 </style>

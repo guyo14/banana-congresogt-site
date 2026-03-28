@@ -2,7 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 import db from '../lib/db.js';
 
-// Fetch all congresistas with attendance and votaciones stats (subqueries avoid Cartesian product)
+// Fetch all diputados with attendance and votaciones stats (subqueries avoid Cartesian product)
 const congressmen = db.prepare(`
   SELECT
     c.id,
