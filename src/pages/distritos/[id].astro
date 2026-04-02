@@ -1,102 +1,36 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import db from "../../lib/db.js";
-import type { IdQuery, NoParams, OrgStats } from "../../lib/types.ts";
-import { PERIOD, CONGRESSMAN_STATUS } from "../../lib/mappers.ts";
 import AttendanceCharts from "../../components/AttendanceCharts.astro";
 import VotesCharts from "../../components/VotesCharts.astro";
 import RiceIndexChart from "../../components/RiceIndexChart.astro";
 import MembersGrid from "../../components/MembersGrid.astro";
+import {
+  getAllDistrictsId,
+  getDistrict,
+  getDistrictMembers,
+  getDistrictStatsByYear,
+  getDistrictStatsTotal
+} from "../../lib/queries.ts";
 
 export async function getStaticPaths() {
-  const districts = db
-    .prepare<NoParams, IdQuery>("SELECT id FROM districts")
-    .all();
-  return districts.map((d) => ({
+  return getAllDistrictsId().map((d) => ({
     params: { id: d.id.toString() },
   }));
 }
 
 const id = Number.parseInt(Astro.params.id);
 
-interface District {
-  id: number;
-  name: string;
-}
-
-interface Congressman {
-  id: number;
-  firstName: string;
-  lastName: string;
-  badge: string;
-}
-
-const district = db
-  .prepare<number, District>(`
-  SELECT
-    id,
-    name
-  FROM districts
-  WHERE id = ?`)
-  .get(id);
+const district = getDistrict(id);
 
 if (!district) throw new Error(`District with ID ${id} not found`);
 
-// Fetch Members
-const members = db
-  .prepare<NoParams, Congressman>(
-    `
-  SELECT
-    c.id,
-    c.first_name AS firstName,
-    c.last_name AS lastName,
-    b.short_name as badge 
-  FROM congressmen c
-  LEFT JOIN blocks b ON c.block_id = b.id
-  WHERE c.district_id = ? AND c.status = ${CONGRESSMAN_STATUS.ACTIVE}
-  ORDER BY c.first_name, c.last_name
-`,
-  )
-  .all(id);
+const members = getDistrictMembers(id);
 
-// Fetch Aggregated Stats
-const totalStats = db
-  .prepare<number, OrgStats>(
-    `
-  SELECT
-    attendance_present AS attendancePresent,
-    attendance_absent AS attendanceAbsent,
-    attendance_license AS attendanceLicense,
-    votes_in_favor AS votesInFavor,
-    votes_against AS votesAgainst,
-    votes_absent AS votesAbsent,
-    rice_index AS riceIndex
-  FROM district_stats
-  WHERE id = ? AND period = '${PERIOD.TOTAL}'
-`,
-  )
-  .get(id);
+const totalStats = getDistrictStatsTotal(id);
 
 if (!totalStats) throw new Error(`Districts stats for ID ${id} not found`);
 
-const yearlyStats = db
-  .prepare<number, OrgStats>(
-    `
-  SELECT
-    period,
-    attendance_present AS attendancePresent,
-    attendance_absent AS attendanceAbsent,
-    attendance_license AS attendanceLicense,
-    votes_in_favor AS votesInFavor,
-    votes_against AS votesAgainst,
-    votes_absent AS votesAbsent,
-    rice_index AS riceIndex
-  FROM district_stats
-  WHERE id = ? AND period != '${PERIOD.TOTAL}'
-  ORDER BY period
-`,
-  )
-  .all(id);
+const yearlyStats = getDistrictStatsByYear(id);
 ---
 
 <Layout title={`Distrito ${district.name}`}>

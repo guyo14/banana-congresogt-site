@@ -4,16 +4,16 @@ import ExpandableGroup from "./ExpandableGroup.astro";
 import { getBlockImagePath, getPartyImagePath } from "../lib/paths.ts";
 
 export interface MemberAction {
-  congressman_id: number;
-  first_name: string;
-  last_name: string;
-  party_id: number;
-  party_name: string;
-  district_id: number;
-  district_name: string;
-  block_id: number;
-  block_name: string;
-  action_value: number;
+  congressmanId: number;
+  firstName: string;
+  lastName: string;
+  partyId: number;
+  partyName: string;
+  districtId: number;
+  districtName: string;
+  blockId: number;
+  blockName: string;
+  actionValue: number;
 }
 
 export interface ActionDef {
@@ -71,10 +71,10 @@ function groupMembersByKey(
     
     map[key].members.push(v);
     
-    if (map[key].actionCounts[v.action_value] !== undefined) {
-      map[key].actionCounts[v.action_value]++;
+    if (map[key].actionCounts[v.actionValue] !== undefined) {
+      map[key].actionCounts[v.actionValue]++;
     } else {
-      map[key].actionCounts[v.action_value] = 1;
+      map[key].actionCounts[v.actionValue] = 1;
     }
   }
 
@@ -85,24 +85,24 @@ function groupMembersByKey(
 // Generate the grouped datasets
 const districtsGrouped = groupMembersByKey(
   members,
-  (v) => `dist-${v.district_id}`,
-  (v) => ({ id: v.district_id, name: v.district_name, icon: "/distritos/map.svg" })
+  (v) => `dist-${v.districtId}`,
+  (v) => ({ id: v.districtId, name: v.districtName, icon: "/distritos/map.svg" })
 );
 
 const blocksGrouped = groupMembersByKey(
   members,
-  (v) => `block-${v.block_id}`,
+  (v) => `block-${v.blockId}`,
   (v) => ({
-    id: v.block_id,
-    name: v.block_name,
-    icon: v.block_id !== -1 ? getBlockImagePath(v.block_id) : undefined,
+    id: v.blockId,
+    name: v.blockName,
+    icon: v.blockId !== -1 ? getBlockImagePath(v.blockId) : undefined,
   })
 );
 
 const partiesGrouped = groupMembersByKey(
   members,
-  (v) => `party-${v.party_id}`,
-  (v) => ({ id: v.party_id, name: v.party_name, icon: getPartyImagePath(v.party_id) })
+  (v) => `party-${v.partyId}`,
+  (v) => ({ id: v.partyId, name: v.partyName, icon: getPartyImagePath(v.partyId) })
 );
 
 // Helper to reliably construct standard stats objects for ExpandableGroup
@@ -138,13 +138,13 @@ function buildStatsArray(actionCounts: Record<number, number>) {
     
     <div class="action-card-grid" id="memberGrid">
       {members.map((v) => {
-        const actionDef = actionMap[v.action_value] || { label: 'Desconocido', color: '#ccc' };
+        const actionDef = actionMap[v.actionValue] || { label: 'Desconocido', color: '#ccc' };
         return (
-          <div class="member-wrapper" data-name={`${v.first_name} ${v.last_name}`.toLowerCase()} data-action={String(v.action_value)}>
+          <div class="member-wrapper" data-name={`${v.firstName} ${v.lastName}`.toLowerCase()} data-action={String(v.actionValue)}>
             <CongressmanActionCard
-              id={v.congressman_id}
-              name={`${v.first_name} ${v.last_name}`}
-              subtitle={v.party_name}
+              id={v.congressmanId}
+              name={`${v.firstName} ${v.lastName}`}
+              subtitle={v.partyName}
               indicatorColor={actionDef.color}
               indicatorLabel={actionDef.label}
             />
@@ -160,12 +160,12 @@ function buildStatsArray(actionCounts: Record<number, number>) {
       <ExpandableGroup id={g.id} title={g.name} iconPath={g.icon} stats={buildStatsArray(g.actionCounts)}>
         <div class="action-card-grid">
           {g.members.map((m) => {
-            const actionDef = actionMap[m.action_value] || { label: 'Desconocido', color: '#ccc' };
+            const actionDef = actionMap[m.actionValue] || { label: 'Desconocido', color: '#ccc' };
             return (
               <CongressmanActionCard
-                id={m.congressman_id}
-                name={`${m.first_name} ${m.last_name}`}
-                subtitle={m.party_name}
+                id={m.congressmanId}
+                name={`${m.firstName} ${m.lastName}`}
+                subtitle={m.partyName}
                 indicatorColor={actionDef.color}
                 indicatorLabel={actionDef.label}
               />
@@ -182,12 +182,12 @@ function buildStatsArray(actionCounts: Record<number, number>) {
       <ExpandableGroup id={g.id} title={g.name} iconPath={g.icon} stats={buildStatsArray(g.actionCounts)}>
         <div class="action-card-grid">
           {g.members.map((m) => {
-            const actionDef = actionMap[m.action_value] || { label: 'Desconocido', color: '#ccc' };
+            const actionDef = actionMap[m.actionValue] || { label: 'Desconocido', color: '#ccc' };
             return (
               <CongressmanActionCard
-                id={m.congressman_id}
-                name={`${m.first_name} ${m.last_name}`}
-                subtitle={m.district_name}
+                id={m.congressmanId}
+                name={`${m.firstName} ${m.lastName}`}
+                subtitle={m.districtName}
                 indicatorColor={actionDef.color}
                 indicatorLabel={actionDef.label}
               />
@@ -204,12 +204,12 @@ function buildStatsArray(actionCounts: Record<number, number>) {
       <ExpandableGroup id={g.id} title={g.name} iconPath={g.icon} stats={buildStatsArray(g.actionCounts)}>
         <div class="action-card-grid">
           {g.members.map((m) => {
-            const actionDef = actionMap[m.action_value] || { label: 'Desconocido', color: '#ccc' };
+            const actionDef = actionMap[m.actionValue] || { label: 'Desconocido', color: '#ccc' };
             return (
               <CongressmanActionCard
-                id={m.congressman_id}
-                name={`${m.first_name} ${m.last_name}`}
-                subtitle={m.district_name}
+                id={m.congressmanId}
+                name={`${m.firstName} ${m.lastName}`}
+                subtitle={m.districtName}
                 indicatorColor={actionDef.color}
                 indicatorLabel={actionDef.label}
               />

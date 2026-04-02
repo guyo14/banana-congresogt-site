@@ -1,29 +1,30 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import db from '../lib/db.ts';
-import type { NoParams, CountQuery } from '../lib/types.ts';
 import {BLOCKS_PATH, CONGRESSMEN_PATH, DISTRICT_PATH, PARTIES_PATH, SESSIONS_PATH, VOTES_PATH} from "../lib/paths.ts";
-import {CONGRESSMAN_STATUS} from "../lib/mappers.ts";
+
+import {
+  countActiveCongressmen,
+  countBlocks,
+  countDistricts,
+  countParties,
+  countSessions,
+  countVoting, getLastSessionDate
+} from "../lib/queries.ts";
 
 // Get high-level metrics for the landing page
 const stats = {
-  congressmen: db.prepare<number, CountQuery>(`SELECT COUNT(*) as count FROM congressmen WHERE status = ?`).get(CONGRESSMAN_STATUS.ACTIVE)?.count,
-  blocks: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM blocks').get()?.count,
-  parties: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM parties').get()?.count,
-  districts: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM districts').get()?.count,
-  sessions: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM sessions').get()?.count,
-  voting: db.prepare<NoParams, CountQuery>('SELECT COUNT(*) as count FROM voting').get()?.count,
+  congressmen: countActiveCongressmen(),
+  blocks: countBlocks(),
+  parties: countParties(),
+  districts: countDistricts(),
+  sessions: countSessions(),
+  voting: countVoting(),
 };
 
 // Derive the "data freshness" date from the most recent sessions
-const lastSession = db.prepare<NoParams, { date: string }>(`
-  SELECT start_date AS date
-  FROM sessions
-  ORDER BY start_date DESC
-  LIMIT 1
-`).get();
+const lastSession = getLastSessionDate();
 const lastUpdateDate = lastSession
-  ? new Date(lastSession.date).toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })
+  ? new Date(lastSession).toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })
   : null;
 ---
 

@@ -7,93 +7,39 @@ import AttendanceCharts from "../../components/AttendanceCharts.astro";
 import VotesCharts from "../../components/VotesCharts.astro";
 import RiceIndexChart from "../../components/RiceIndexChart.astro";
 import MembersGrid from "../../components/MembersGrid.astro";
+import {
+  getAllPartiesId,
+  getParty,
+  getPartyMembers,
+  getPartyStatsByYear,
+  getPartyStatsTotal
+} from "../../lib/queries.ts";
 
 export async function getStaticPaths() {
-  const parties = db
-    .prepare<NoParams, IdQuery>("SELECT id FROM parties")
-    .all();
-  return parties.map((p) => ({
+  return getAllPartiesId().map((p) => ({
     params: { id: p.id.toString() },
   }));
 }
 
 const id = Number.parseInt(Astro.params.id);
 
-interface Party {
-  id: number;
-  name: string;
-}
-
-interface Congressman {
-  id: number;
-  firstName: string;
-  lastName: string;
-  badge: string;
-}
-
-const party = db
-  .prepare<number, Party>("SELECT * FROM parties WHERE id = ?")
-  .get(id);
+const party = getParty(id);
 
 if (!party) throw new Error(`Party with ID ${id} not found`);
 
-const members = db
-  .prepare<NoParams, Congressman>(
-    `
-  SELECT
-    c.id,
-    c.first_name AS firstName,
-    c.last_name AS lastName,
-    d.name as badge 
-  FROM congressmen c
-  LEFT JOIN districts d ON c.district_id = d.id
-  WHERE c.party_id = ? AND c.status = ${CONGRESSMAN_STATUS.ACTIVE}
-  ORDER BY c.first_name, c.last_name
-`,
-  )
-  .all(id);
+const members = getPartyMembers(id);
 
-const totalStats = db
-  .prepare<number, OrgStats>(
-    `
-  SELECT
-    attendance_present AS attendancePresent,
-    attendance_absent AS attendanceAbsent,
-    attendance_license AS attendanceLicense,
-    votes_in_favor AS votesInFavor,
-    votes_against AS votesAgainst,
-    votes_absent AS votesAbsent,
-    rice_index AS riceIndex
-  FROM party_stats
-  WHERE id = ? AND period = '${PERIOD.TOTAL}'
-`,
-  )
-  .get(id);
+const totalStats = getPartyStatsTotal(id);
 
 if (!totalStats) throw new Error(`Party stats for ID ${id} not found`);
 
-const yearlyStats = db.prepare<number, OrgStats>(`
-  SELECT
-    period,
-    attendance_present AS attendancePresent,
-    attendance_absent AS attendanceAbsent,
-    attendance_license AS attendanceLicense,
-    votes_in_favor AS votesInFavor,
-    votes_against AS votesAgainst,
-    votes_absent AS votesAbsent,
-    rice_index AS riceIndex
-  FROM party_stats
-  WHERE id = ? AND period != '${PERIOD.TOTAL}'
-  ORDER BY period
-`,
-  )
-  .all(id);
+const yearlyStats =getPartyStatsByYear(id);
 ---
 
-<Layout title={`Partido ${party.name}`}>
+<Layout title={`Partido ${party.shortName}`}>
   <div class="page-header text-center">
     <div class="badge badge-party margin-auto mb-1">Partido Político</div>
-    <h1 class="district-name">{party.name}</h1>
+    <h1 class="district-name">{party.shortName}</h1>
     <p class="text-muted">{members.length} Representante(s)</p>
   </div>
 

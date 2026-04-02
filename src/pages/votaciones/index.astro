@@ -1,39 +1,12 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import db from "../../lib/db.ts";
-import type { NoParams } from "../../lib/types.ts";
 import {
   getSessionTypeString,
   MAJORITY,
 } from "../../lib/mappers.ts";
+import {getVotingSummaries} from "../../lib/queries.ts";
 
-interface VotingSummary {
-  id: number;
-  subject: string;
-  start_date: string;
-  session_number: number;
-  session_type: number;
-  period: string;
-  votes_in_favor: number;
-  votes_against: number;
-  votes_absent: number;
-  majority: number;
-}
-
-const voting = db
-  .prepare<[], VotingSummary>(
-    `
-  SELECT
-    v.id, v.subject,
-    s.start_date, s.session_number, s.type AS session_type, s.period,
-    v.votes_in_favor, v.votes_against, v.votes_absent,
-    v.majority
-  FROM voting v
-  JOIN sessions s ON v.session_id = s.id
-  ORDER BY s.start_date DESC, v.id DESC
-`,
-  )
-  .all();
+const voting = getVotingSummaries();
 
 // Distinct periods for filter dropdown
 const periods = [...new Set(voting.map((v) => v.period))].sort(
@@ -88,15 +61,15 @@ const formatDate = (dateString: string): string => {
   <div class="votation-list" id="votationList">
     {
       voting.map((v, index) => {
-        const vTotal = v.votes_in_favor + v.votes_against + v.votes_absent;
+        const vTotal = v.votesInFavor + v.votesAgainst + v.votesAbsent;
         const pctFavor =
-          vTotal > 0 ? ((v.votes_in_favor / vTotal) * 100).toFixed(1) : "0";
+          vTotal > 0 ? ((v.votesInFavor / vTotal) * 100).toFixed(1) : "0";
         const pctContra =
-          vTotal > 0 ? ((v.votes_against / vTotal) * 100).toFixed(1) : "0";
+          vTotal > 0 ? ((v.votesAgainst / vTotal) * 100).toFixed(1) : "0";
         const pctAbsent =
-          vTotal > 0 ? ((v.votes_absent / vTotal) * 100).toFixed(1) : "0";
-        const typeLabel = getSessionTypeString(v.session_type);
-        const sessionTag = `${v.period} Sesión ${typeLabel} No. ${v.session_number}`;
+          vTotal > 0 ? ((v.votesAbsent / vTotal) * 100).toFixed(1) : "0";
+        const typeLabel = getSessionTypeString(v.sessionType);
+        const sessionTag = `${v.period} Sesión ${typeLabel} No. ${v.sessionNumber}`;
 
         return (
           <a
@@ -112,7 +85,7 @@ const formatDate = (dateString: string): string => {
               <div class="meta-tags">
                 <span class="badge">{sessionTag}</span>
                 <span class="votation-date">
-                  {formatDate(v.start_date)}
+                  {formatDate(v.startDate)}
                 </span>
               </div>
             </div>
@@ -120,19 +93,19 @@ const formatDate = (dateString: string): string => {
               <div class="vs-row">
                 <span class="vs-dot" style="background:#00b2e3" />
                 <span class="vs-label">A Favor</span>
-                <strong class="vs-value">{v.votes_in_favor}</strong>
+                <strong class="vs-value">{v.votesInFavor}</strong>
                 <span class="vs-pct">{pctFavor}%</span>
               </div>
               <div class="vs-row">
                 <span class="vs-dot" style="background:#00da9f" />
                 <span class="vs-label">En Contra</span>
-                <strong class="vs-value">{v.votes_against}</strong>
+                <strong class="vs-value">{v.votesAgainst}</strong>
                 <span class="vs-pct">{pctContra}%</span>
               </div>
               <div class="vs-row">
                 <span class="vs-dot" style="background:#ffd700" />
                 <span class="vs-label">Ausente</span>
-                <strong class="vs-value">{v.votes_absent}</strong>
+                <strong class="vs-value">{v.votesAbsent}</strong>
                 <span class="vs-pct">{pctAbsent}%</span>
               </div>
               <div class="vs-bar">

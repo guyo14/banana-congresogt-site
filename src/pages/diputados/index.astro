@@ -1,45 +1,13 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-import db from '../../lib/db.ts';
 import CongressmanCard from "../../components/CongressmanCard.astro";
-import type { NoParams } from "../../lib/types.ts";
 import {CONGRESSMAN_STATUS, CONGRESSMAN_STATUS_STRING} from "../../lib/mappers.ts";
+import {getAllCongressmen, getAllSimpleBlocks, getAllSimpleDistricts} from "../../lib/queries.ts";
 
-interface Congressman {
-  id: number,
-  firstName: string,
-  lastName: string,
-  status: number,
-  blockId: number,
-  blockName: string,
-  districtId: number,
-  districtName: string,
-}
+const congressmen = getAllCongressmen()
 
-interface Group {
-  id: number,
-  name: string,
-}
-
-// Fetch congressmen with their attendance percentage computed at build time
-const congressmen = db.prepare<NoParams, Congressman>(`
-  SELECT 
-    c.id,
-    c.first_name AS firstName,
-    c.last_name AS lastName,
-    c.status,
-    b.id AS blockId,
-    b.short_name AS blockName,
-    d.id AS districtId,
-    d.name AS districtName 
-  FROM congressmen c
-  LEFT JOIN blocks b ON c.block_id = b.id 
-  LEFT JOIN districts d ON c.district_id = d.id
-  ORDER BY firstName, lastName
-`).all();
-
-const blocks = db.prepare<NoParams, Group>('SELECT id, short_name AS name FROM blocks ORDER BY name').all();
-const districts = db.prepare<NoParams, Group>('SELECT id, name FROM districts ORDER BY name').all();
+const blocks = getAllSimpleBlocks();
+const districts = getAllSimpleDistricts();
 ---
 
 <Layout title="Diputados">

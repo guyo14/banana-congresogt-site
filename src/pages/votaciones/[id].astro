@@ -9,12 +9,10 @@ import {
   VOTE_TYPE,
   VOTE_TYPE_STRING,
 } from "../../lib/mappers.ts";
+import {getAllVotingId, getCongressmenVotingAction, getVotingById} from "../../lib/queries.ts";
 
 export async function getStaticPaths() {
-  const votingIds = db
-    .prepare<NoParams, IdQuery>("SELECT id FROM voting")
-    .all();
-  return votingIds.map((v) => ({
+  return getAllVotingId().map((v) => ({
     params: { id: v.id.toString() },
   }));
 }
@@ -29,73 +27,11 @@ const allVoting = db
   .all();
 const globalNumber = allVoting.length - allVoting.findIndex((v) => v.id === id);
 
-interface VotingDetail {
-  id: number;
-  subject: string;
-  start_date: string;
-  session_number: number;
-  session_type: number;
-  period: string;
-  majority: number;
-  votes_in_favor: number;
-  votes_against: number;
-  votes_absent: number;
-  attendance_present: number;
-  attendance_absent: number;
-  attendance_license: number;
-}
-
-const voting = db
-  .prepare<number, VotingDetail>(
-    `
-  SELECT 
-    v.id, v.subject, s.start_date, s.session_number, s.type as session_type, s.period,
-    v.majority,
-    v.votes_in_favor, v.votes_against, v.votes_absent,
-    v.attendance_present, v.attendance_absent, v.attendance_license
-  FROM voting v
-  JOIN sessions s ON v.session_id = s.id
-  WHERE v.id = ?
-`,
-  )
-  .get(id);
+const voting = getVotingById(id);
 
 if (!voting) throw new Error(`Voting ${id} not found`);
 
-interface VoteMember {
-  action_value: number;
-  congressman_id: number;
-  first_name: string;
-  last_name: string;
-  party_id: number;
-  party_name: string;
-  district_id: number;
-  district_name: string;
-  block_id: number;
-  block_name: string;
-}
-
-// Fetch individual votes for the tabs
-const votesList = db
-  .prepare<number, VoteMember>(
-    `
-  SELECT 
-    v.vote_type as action_value, 
-    c.id as congressman_id, c.first_name, c.last_name,
-    p.id as party_id, COALESCE(p.name, 'Sin Partido') as party_name,
-    d.id as district_id, COALESCE(d.name, 'Nacional') as district_name,
-    COALESCE(c.block_id, -1) as block_id,
-    CASE WHEN c.block_id = -1 THEN 'Independientes' ELSE COALESCE(b.name, 'Independientes') END as block_name
-  FROM votes v
-  JOIN congressmen c ON v.congressman_id = c.id
-  LEFT JOIN parties p ON c.party_id = p.id
-  LEFT JOIN districts d ON c.district_id = d.id
-  LEFT JOIN blocks b ON c.block_id = b.id
-  WHERE v.voting_id = ?
-  ORDER BY block_name ASC, p.name ASC, c.first_name ASC
-`,
-  )
-  .all(id);
+const votesList = getCongressmenVotingAction(id)
 
 const formatDate = (dateString: string) => {
   const options: Intl.DateTimeFormatOptions = {
@@ -126,9 +62,9 @@ const VOTE_FILTERS = [
         #{globalNumber}
       </span>
       <span class="badge" style="background: var(--bg-tertiary)">
-        {voting.period} Sesión {getSessionTypeString(voting.session_type)} No. {voting.session_number}
+        {voting.period} Sesión {getSessionTypeString(voting.sessionType)} No. {voting.sessionNumber}
       </span>
-      <span class="text-muted">{formatDate(voting.start_date)}</span>
+      <span class="text-muted">{formatDate(voting.startDate)}</span>
     </div>
     <h1>{voting.subject}</h1>
   </div>
@@ -144,9 +80,9 @@ const VOTE_FILTERS = [
           VOTE_TYPE_STRING.ABSENT,
         ]}
         data={[
-          voting.votes_in_favor,
-          voting.votes_against,
-          voting.votes_absent,
+          voting.votesInFavor,
+          voting.votesAgainst,
+          voting.votesAbsent,
         ]}
       />
     </section>
@@ -160,9 +96,9 @@ const VOTE_FILTERS = [
           "Ausente",
         ]}
         data={[
-          voting.attendance_present,
-          voting.attendance_license,
-          voting.attendance_absent,
+          voting.attendancePresent,
+          voting.attendanceLicense,
+          voting.attendanceAbsent,
         ]}
       />
     </section>

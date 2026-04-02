@@ -1,7 +1,5 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import db from "../../lib/db.js";
-import type { NoParams, CongressmanStats, IdQuery } from "../../lib/types.ts";
 import AttendanceCharts from "../../components/AttendanceCharts.astro";
 import VotesCharts from "../../components/VotesCharts.astro";
 import {
@@ -11,79 +9,29 @@ import {
   getPartyPath,
   getVotingPath,
 } from "../../lib/paths.ts";
-import { VOTE_TYPE, VOTE_TYPE_STRING, PERIOD } from "../../lib/mappers.ts";
+import { VOTE_TYPE, VOTE_TYPE_STRING } from "../../lib/mappers.ts";
 import {
   getCongressmanStatusString,
   getSessionTypeString,
   getVoteString,
 } from "../../lib/mappers.ts";
 import { formatDate } from "../../lib/util.ts";
+import {
+  getAllCongressmenId,
+  getAttendanceByCongressman,
+  getCongressman, getCongressmanStatsByYear,
+  getCongressmanStatsTotal, getVotesByCongressman
+} from "../../lib/queries.ts";
 
 export async function getStaticPaths() {
-  const congressmen = db
-    .prepare<NoParams, IdQuery>("SELECT id FROM congressmen")
-    .all();
-  return congressmen.map((c) => ({
+  return getAllCongressmenId().map((c) => ({
     params: { id: c.id.toString() },
   }));
 }
 
 const id = Number.parseInt(Astro.params.id);
 
-interface Congressman {
-  id: number;
-  firstName: string;
-  lastName: string;
-  birthDate: string;
-  status: number;
-  partyId: number;
-  partyName: string;
-  districtId: number;
-  districtName: string;
-  blockId: number;
-  blockName: string;
-}
-
-interface Attendance {
-  status: number;
-  sessionDate: string;
-  sessionNumber: number;
-  sessionType: number;
-}
-
-interface Vote {
-  votingId: number;
-  voteType: number;
-  subject: string;
-  sessionDate: string;
-  totalInFavor: number;
-  totalAgainst: number;
-  withMajority: number;
-}
-
-const congressman = db
-  .prepare<number, Congressman>(
-    `
-  SELECT
-    c.id,
-    c.first_name AS firstName,
-    c.last_name AS lastName,
-    c.birth_date AS birthDate,
-    c.status,
-    c.party_id AS partyId,
-    p.short_name AS partyName,
-    c.district_id AS districtId,
-    d.name AS districtName,
-    c.block_id AS blockId,
-    b.short_name AS blockName
-  FROM congressmen c 
-  LEFT JOIN parties p ON c.party_id = p.id 
-  LEFT JOIN districts d ON c.district_id = d.id
-  LEFT JOIN blocks b ON c.block_id = b.id
-  WHERE c.id = ?
-`,
-  )
-  .get(id);
+const congressman = getCongressman(id);
 
 if (!congressman) {
   throw new Error("Congressman not found");
@@ -92,7 +40,7 @@ if (!congressman) {
 const {
   firstName,
   lastName,
-  birthDate,
+  dateOfBirth,
   status,
   partyId,
   partyName,
@@ -103,85 +51,18 @@ const {
 } = congressman;
 const fullName = `${firstName} ${lastName}`;
 
-const totalStats = db
-  .prepare<number, CongressmanStats>(
-    `
-  SELECT
-    period,
-    attendance_present AS attendancePresent,
-    attendance_license AS attendanceLicense,
-    attendance_absent AS attendanceAbsent,
-    votes_in_favor AS votesInFavor,
-    votes_against AS votesAgainst,
-    votes_absent AS votesAbsent,
-    votes_with_majority AS votesWithMajority
-  FROM congressman_stats 
-  WHERE id = ? AND period = '${PERIOD.TOTAL}'
-`,
-  )
-  .get(id);
+const totalStats = getCongressmanStatsTotal(id);
 
 if (!totalStats) {
   throw new Error("Total stats not found");
 }
 
-// Sessions attendance
-const attendance = db
-  .prepare<number, Attendance>(
-    `
-  SELECT
-    a.status,
-    s.start_date AS sessionDate,
-    s.session_number AS sessionNumber,
-    s.type AS sessionType
-  FROM attendance a
-  JOIN sessions s ON a.session_id = s.id
-  WHERE a.congressman_id = ?
-  ORDER BY s.start_date
-`,
-  )
-  .all(id);
+const attendance = getAttendanceByCongressman(id);
 
 // Stats breakdown by year
-const statsByYear = db
-  .prepare<number, CongressmanStats>(
-    `
-  SELECT
-    period,
-    attendance_present AS attendancePresent,
-    attendance_license AS attendanceLicense,
-    attendance_absent AS attendanceAbsent,
-    votes_in_favor AS votesInFavor,
-    votes_against AS votesAgainst,
-    votes_absent AS votesAbsent,
-    votes_with_majority AS votesWithMajority
-  FROM congressman_stats 
-  WHERE id = ? AND period != '${PERIOD.TOTAL}'
-  ORDER BY period
-`,
-  )
-  .all(id);
+const statsByYear = getCongressmanStatsByYear(id);
 
-// All voting with outcome context
-const votes = db
-  .prepare<number, Vote>(
-    `
-  SELECT 
-    v.vote_type AS voteType,
-    vot.subject,
-    s.start_date AS sessionDate,
-    vot.id as votingId,
-    vot.votes_in_favor as totalInFavor,
-    vot.votes_against as totalAgainst,
-    v.with_majority AS withMajority
-  FROM votes v
-  JOIN voting vot ON v.voting_id = vot.id
-  JOIN sessions s ON vot.session_id = s.id
-  WHERE v.congressman_id = ?
-  ORDER BY votingId DESC
-`,
-  )
-  .all(id);
+const votes = getVotesByCongressman(id);
 
 // Utility for vote colors/labels
 const getVoteColor = (type: number) => {
@@ -238,7 +119,7 @@ const heatmapYears = Object.keys(heatmapData).sort();
         </div>
         <div class="meta-item">
           <span class="meta-label">Edad</span>
-          <span id="age" class="meta-value" data-birthdate={birthDate}></span>
+          <span id="age" class="meta-value" data-birthdate={dateOfBirth}></span>
         </div>
         <div class="meta-item">
           <span class="meta-label">Distrito</span>

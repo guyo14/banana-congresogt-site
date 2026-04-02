@@ -1,43 +1,14 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import db from "../../lib/db.ts";
-import type { NoParams } from "../../lib/types.ts";
 import {
   getSessionTypeString,
-  ATTENDANCE_STATUS,
   SESSION_TYPE,
 } from "../../lib/mappers.ts";
+import {getAllSessionsSummary} from "../../lib/queries.ts";
+import {getSessionPath} from "../../lib/paths.ts";
 
-interface SessionSummary {
-  id: number;
-  type: number;
-  session_number: number;
-  start_date: string;
-  period: string;
-  total: number;
-  presente: number;
-  ausente: number;
-  licencia: number;
-}
+const sessions = getAllSessionsSummary();
 
-const sessions = db
-  .prepare<[], SessionSummary>(
-    `
-  SELECT
-    s.id, s.type, s.session_number, s.start_date, s.period,
-    COUNT(a.congressman_id) AS total,
-    SUM(CASE WHEN a.status = ${ATTENDANCE_STATUS.PRESENT} THEN 1 ELSE 0 END) AS presente,
-    SUM(CASE WHEN a.status = ${ATTENDANCE_STATUS.ABSENT}  THEN 1 ELSE 0 END) AS ausente,
-    SUM(CASE WHEN a.status = ${ATTENDANCE_STATUS.LICENSE}  THEN 1 ELSE 0 END) AS licencia
-  FROM sessions s
-  LEFT JOIN attendance a ON s.id = a.session_id
-  GROUP BY s.id
-  ORDER BY s.start_date DESC
-`,
-  )
-  .all();
-
-// Get distinct periods for filter dropdown
 const periods = [...new Set(sessions.map((s) => s.period))].sort(
   (a, b) => Number(b) - Number(a),
 );
@@ -91,29 +62,30 @@ const toISODate = (dateString: string): string => {
   <div class="sessions-list" id="sessionsList">
     {
       sessions.map((s) => {
-        const pctPresente =
-          s.total > 0 ? ((s.presente / s.total) * 100).toFixed(1) : "0";
-        const pctAusente =
-          s.total > 0 ? ((s.ausente / s.total) * 100).toFixed(1) : "0";
-        const pctLicencia =
-          s.total > 0 ? ((s.licencia / s.total) * 100).toFixed(1) : "0";
+        const total = s.present + s.absent + s.license;
+        const pctPresent =
+          total > 0 ? ((s.present / total) * 100).toFixed(1) : "0";
+        const pctAbsent =
+          total > 0 ? ((s.absent / total) * 100).toFixed(1) : "0";
+        const pctLicense =
+          total > 0 ? ((s.license / total) * 100).toFixed(1) : "0";
         const typeLabel = getSessionTypeString(s.type);
 
         return (
           <a
-            href={`/sesiones/${s.id}`}
+            href={getSessionPath(s.id)}
             class="session-card glass-panel"
             data-period={s.period}
             data-type={s.type}
-            data-date={toISODate(s.start_date)}
+            data-date={toISODate(s.startDate)}
           >
             <div class="session-info">
               <div class="session-meta">
                 <span class="badge">{s.period}</span>
-                <span class="session-date">{formatDate(s.start_date)}</span>
+                <span class="session-date">{formatDate(s.startDate)}</span>
               </div>
               <h3>
-                Sesión {typeLabel} No. {s.session_number}
+                Sesión {typeLabel} No. {s.sessionNumber}
               </h3>
             </div>
 
@@ -121,33 +93,33 @@ const toISODate = (dateString: string): string => {
               <div class="att-row">
                 <span class="att-dot att-presente" />
                 <span class="att-label">Presente</span>
-                <strong class="att-value">{s.presente}</strong>
-                <span class="att-pct">{pctPresente}%</span>
+                <strong class="att-value">{s.present}</strong>
+                <span class="att-pct">{pctPresent}%</span>
               </div>
               <div class="att-row">
                 <span class="att-dot att-licencia" />
                 <span class="att-label">Licencia</span>
-                <strong class="att-value">{s.licencia}</strong>
-                <span class="att-pct">{pctLicencia}%</span>
+                <strong class="att-value">{s.license}</strong>
+                <span class="att-pct">{pctLicense}%</span>
               </div>
               <div class="att-row">
                 <span class="att-dot att-ausente" />
                 <span class="att-label">Ausente</span>
-                <strong class="att-value">{s.ausente}</strong>
-                <span class="att-pct">{pctAusente}%</span>
+                <strong class="att-value">{s.absent}</strong>
+                <span class="att-pct">{pctAbsent}%</span>
               </div>
               <div class="att-bar">
                 <div
                   class="att-bar-seg att-bar-presente"
-                  style={`width:${pctPresente}%`}
+                  style={`width:${pctPresent}%`}
                 />
                 <div
                   class="att-bar-seg att-bar-licencia"
-                  style={`width:${pctLicencia}%`}
+                  style={`width:${pctLicense}%`}
                 />
                 <div
                   class="att-bar-seg att-bar-ausente"
-                  style={`width:${pctAusente}%`}
+                  style={`width:${pctAbsent}%`}
                 />
               </div>
             </div>

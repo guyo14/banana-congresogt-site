@@ -1,26 +1,10 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import OrgCard from '../../components/OrgCard.astro';
-import db from '../../lib/db.js';
-import type {NoParams} from "../../lib/types.ts";
 import {getBlockImagePath, getBlockPath} from "../../lib/paths.ts";
+import {getAllBlocksWithMembersCount} from "../../lib/queries.ts";
 
-interface Block {
-    id: number;
-    name: string;
-    membersCount: number;
-}
-
-const blocks = db.prepare<NoParams, Block>(`
-  SELECT
-    b.id,
-    b.short_name AS name,
-    COUNT(*) AS membersCount
-  FROM blocks b
-  LEFT JOIN congressmen c ON b.id = c.block_id
-  GROUP BY b.id, b.short_name
-  ORDER BY b.short_name, membersCount DESC
-`).all();
+const blocks = getAllBlocksWithMembersCount();
 ---
 
 <Layout title="Bancadas del Congreso">
@@ -29,9 +13,9 @@ const blocks = db.prepare<NoParams, Block>(`
     </div>
 
     <div class="grid-cards">
-        {blocks.map(({id, name, membersCount}) =>
-          <OrgCard name={name} membersCount={membersCount} href={getBlockPath(id)}>
-              <img src={getBlockImagePath(id)} alt={name} class="fit"/>
+        {blocks.map(({id, shortName, membersCount}) =>
+          <OrgCard name={shortName} membersCount={membersCount} href={getBlockPath(id)}>
+              <img src={getBlockImagePath(id)} alt={shortName} class="fit"/>
           </OrgCard>
         )}
     </div>

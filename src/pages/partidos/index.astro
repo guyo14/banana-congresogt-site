@@ -1,30 +1,10 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import db from "../../lib/db.js";
 import OrgCard from "../../components/OrgCard.astro";
-import type { NoParams } from "../../lib/types";
 import { getPartyImagePath, getPartyPath } from "../../lib/paths";
+import {getAllPartiesWithMembersCount} from "../../lib/queries.ts";
 
-interface Party {
-  id: number;
-  name: string;
-  membersCount: number;
-}
-
-const parties = db
-  .prepare<NoParams, Party>(
-    `
-  SELECT
-    p.id,
-    p.short_name AS name,
-    COUNT(*) AS membersCount
-  FROM parties p
-  LEFT JOIN congressmen c ON p.id = c.party_id
-  GROUP BY p.id, p.short_name
-  ORDER BY p.short_name, membersCount DESC
-`,
-  )
-  .all();
+const parties = getAllPartiesWithMembersCount();
 ---
 
 <Layout title="Bancadas del Congreso">
@@ -34,13 +14,13 @@ const parties = db
 
   <div class="grid-cards">
     {
-      parties.map(({ id, name, membersCount }) => (
+      parties.map(({ id, shortName, membersCount }) => (
         <OrgCard
-          name={name}
+          name={shortName}
           membersCount={membersCount}
           href={getPartyPath(id)}
         >
-          <img src={getPartyImagePath(id)} alt={name} class="fit" />
+          <img src={getPartyImagePath(id)} alt={shortName} class="fit" />
         </OrgCard>
       ))
     }

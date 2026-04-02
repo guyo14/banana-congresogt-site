@@ -1,30 +1,11 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-import db from '../../lib/db.js';
 import MarkedMap from "../../components/MarkedMap.astro";
 import OrgCard from "../../components/OrgCard.astro";
-import type {NoParams} from "../../lib/types.ts";
 import {getDistrictPath} from "../../lib/paths.ts";
+import {getAllDistrictsWithMembersCount} from "../../lib/queries.ts";
 
-interface District {
-  id: number;
-  name: string;
-  key: string;
-  membersCount: number;
-}
-
-// Get districts with member count
-const districts = db.prepare<NoParams, District>(`
-  SELECT
-    d.id,
-    d.name,
-    d.key,
-    COUNT(*) AS membersCount
-  FROM districts d
-  LEFT JOIN congressmen c ON d.id = c.district_id
-  GROUP BY d.id, d.name, d.key
-  ORDER BY d.name, membersCount DESC
-`).all();
+const districts = getAllDistrictsWithMembersCount();
 ---
 
 <Layout title="Distritos Electorales">

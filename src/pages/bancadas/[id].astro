@@ -1,101 +1,30 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import db from "../../lib/db.js";
-import type { IdQuery, NoParams, OrgStats } from "../../lib/types.ts";
-import { PERIOD, CONGRESSMAN_STATUS } from "../../lib/mappers.ts";
 import AttendanceCharts from "../../components/AttendanceCharts.astro";
 import VotesCharts from "../../components/VotesCharts.astro";
 import RiceIndexChart from "../../components/RiceIndexChart.astro";
 import MembersGrid from "../../components/MembersGrid.astro";
+import {getAllBlocksId, getBlock, getBlockMembers, getBlockStatsByYear, getBlockStatsTotal} from "../../lib/queries.ts";
 
 export async function getStaticPaths() {
-  const blocks = db
-    .prepare<NoParams, IdQuery>("SELECT id FROM blocks")
-    .all();
-  return blocks.map((b) => ({
+  return getAllBlocksId().map((b) => ({
     params: { id: b.id.toString() },
   }));
 }
 
 const id = Number.parseInt(Astro.params.id);
 
-interface Block {
-  id: number;
-  name: string;
-  shortName: string;
-}
-
-interface Congressman {
-  id: number;
-  firstName: string;
-  lastName: string;
-  badge: string;
-}
-
-const block = db.prepare<number, Block>(`
-  SELECT
-    id,
-    name,
-    short_name AS shortName
-  FROM blocks
-  WHERE id = ?
-`).get(id);
+const block = getBlock(id);
 
 if (!block) throw new Error(`Block with ID ${id} not found`);
 
-const members = db
-  .prepare<NoParams, Congressman>(
-    `
-  SELECT
-    c.id,
-    c.first_name AS firstName,
-    c.last_name AS lastName,
-    d.name as badge 
-  FROM congressmen c
-  LEFT JOIN districts d ON c.district_id = d.id
-  WHERE c.block_id = ? AND c.status = ${CONGRESSMAN_STATUS.ACTIVE}
-  ORDER BY c.first_name, c.last_name
-`,
-  )
-  .all(id);
+const members = getBlockMembers(id);
 
-const totalStats = db
-  .prepare<number, OrgStats>(
-    `
-  SELECT
-    attendance_present AS attendancePresent,
-    attendance_absent AS attendanceAbsent,
-    attendance_license AS attendanceLicense,
-    votes_in_favor AS votesInFavor,
-    votes_against AS votesAgainst,
-    votes_absent AS votesAbsent,
-    rice_index AS riceIndex
-  FROM block_stats
-  WHERE id = ? AND period = '${PERIOD.TOTAL}'
-`,
-  )
-  .get(id);
+const totalStats = getBlockStatsTotal(id);
 
 if (!totalStats) throw new Error(`Block stats for ID ${id} not found`);
 
-const yearlyStats = db
-  .prepare<number, OrgStats>(
-    `
-  SELECT
-    period,
-    attendance_present AS attendancePresent,
-    attendance_absent AS attendanceAbsent,
-    attendance_license AS attendanceLicense,
-    votes_in_favor AS votesInFavor,
-    votes_against AS votesAgainst,
-    votes_absent AS votesAbsent,
-    rice_index AS riceIndex
-  FROM block_stats
-  WHERE id = ? AND period != '${PERIOD.TOTAL}'
-  ORDER BY period
-`,
-  )
-  .all(id);
+const yearlyStats = getBlockStatsByYear(id);
 ---
 
 <Layout title={`Bancada ${block.name}`}>
