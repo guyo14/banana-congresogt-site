@@ -62,6 +62,7 @@ interface SessionSummary {
 }
 
 interface Attendance {
+  sessionId: number;
   status: number;
   sessionDate: string;
   sessionNumber: number;
@@ -570,6 +571,7 @@ export function getVotingBySession(id: number) {
 export function getAttendanceByCongressman(id: number) {
   return db.prepare<number, Attendance>(`
     SELECT
+      a.session_id AS sessionId,
       a.status,
       s.start_date AS sessionDate,
       s.session_number AS sessionNumber,
