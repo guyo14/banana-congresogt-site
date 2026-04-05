@@ -70,6 +70,7 @@ const allData = {
   congressmen: groupByPeriod(rawCongressmen, (row) => {
     const attT = row.attendance_present + row.attendance_absent + row.attendance_license;
     const votT = row.votes_in_favor + row.votes_against + row.votes_absent;
+    const votP = row.votes_in_favor + row.votes_against;
     return {
       name: `${row.firstName} ${row.lastName}`,
       badge: row.badge,
@@ -83,24 +84,25 @@ const allData = {
       session_absence_pct: pct(row.attendance_absent + row.attendance_license, attT),
       session_license_pct: pct(row.attendance_license, attT),
       session_absent_pct:  pct(row.attendance_absent, attT),
-      favor_pct: pct(row.votes_in_favor, votT),
       vote_in_favor: row.votes_in_favor,
       vote_against: row.votes_against,
       vote_absent: row.votes_absent,
-      vote_present: row.votes_in_favor + row.votes_against,
+      vote_present: votP,
       vote_total: votT,
-      majority_pct: pct(row.votes_with_majority, votT),
+      majority_pct: pct(row.votes_with_majority, votP),
       with_majority: row.votes_with_majority,
-      minority_pct: pct(row.votes_against_majority, votT),
+      minority_pct: pct(row.votes_against_majority, votP),
       with_minority: row.votes_against_majority,
-      voting_attendance_pct: pct(row.votes_in_favor + row.votes_against, votT),
+      voting_attendance_pct: pct(votP, votT),
       voting_absence_pct:    pct(row.votes_absent, votT),
-      voting_against_pct:    pct(row.votes_against, votT),
+      voting_against_pct:    pct(row.votes_against, votP),
+      voting_in_favor_pct:   pct(row.votes_in_favor, votP),
     };
   }),
   parties: groupByPeriod(rawParties, (row) => {
     const attT = row.attendance_present + row.attendance_absent + row.attendance_license;
     const votT = row.votes_in_favor + row.votes_against + row.votes_absent;
+    const votP = row.votes_in_favor + row.votes_against;
     return {
       name: row.name,
       path: getPartyPath(row.id),
@@ -108,7 +110,8 @@ const allData = {
       att_pct: pct(row.attendance_present, attT),
       att_present: row.attendance_present,
       att_total: attT,
-      favor_pct: pct(row.votes_in_favor, votT),
+      vote_present: votP,
+      voting_in_favor_pct: pct(row.votes_in_favor, votP),
       vote_in_favor: row.votes_in_favor,
       vote_total: votT,
       rice_index: Math.round(Number(row.rice_index) * 1000) / 10,
@@ -117,6 +120,7 @@ const allData = {
   districts: groupByPeriod(rawDistricts, (row) => {
     const attT = row.attendance_present + row.attendance_absent + row.attendance_license;
     const votT = row.votes_in_favor + row.votes_against + row.votes_absent;
+    const votP = row.votes_in_favor + row.votes_against;
     return {
       name: row.name,
       path: getDistrictPath(row.id),
@@ -124,7 +128,8 @@ const allData = {
       att_pct: pct(row.attendance_present, attT),
       att_present: row.attendance_present,
       att_total: attT,
-      favor_pct: pct(row.votes_in_favor, votT),
+      vote_present: votP,
+      voting_in_favor_pct: pct(row.votes_in_favor, votP),
       vote_in_favor: row.votes_in_favor,
       vote_total: votT,
       rice_index: Math.round(Number(row.rice_index) * 1000) / 10,
@@ -133,6 +138,7 @@ const allData = {
   blocks: groupByPeriod(rawBlocks, (row) => {
     const attT = row.attendance_present + row.attendance_absent + row.attendance_license;
     const votT = row.votes_in_favor + row.votes_against + row.votes_absent;
+    const votP = row.votes_in_favor + row.votes_against;
     return {
       name: row.name,
       path: getBlockPath(row.id),
@@ -140,7 +146,8 @@ const allData = {
       att_pct: pct(row.attendance_present, attT),
       att_present: row.attendance_present,
       att_total: attT,
-      favor_pct: pct(row.votes_in_favor, votT),
+      vote_present: votP,
+      voting_in_favor_pct: pct(row.votes_in_favor, votP),
       vote_in_favor: row.votes_in_favor,
       vote_total: votT,
       rice_index: Math.round(Number(row.rice_index) * 1000) / 10,
@@ -180,6 +187,16 @@ const allData = {
     </div>
   </div>
 
+  <div class="ranking-info" id="rankingInfo" aria-live="polite">
+    <svg class="ranking-info-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+    </svg>
+    <div class="ranking-info-body">
+      <p class="ranking-info-desc" id="rankingInfoDesc"></p>
+      <p class="ranking-info-formula" id="rankingInfoFormula"></p>
+    </div>
+  </div>
+
   <p class="results-count" id="resultsCount"></p>
 
   <div class="filter-inline">
@@ -201,31 +218,107 @@ const allData = {
 
   const RANKINGS = {
     congressmen: [
-      { value: 'att_pct',              label: 'Asistencia a Sesiones',    unit: '%' },
-      { value: 'session_absence_pct',  label: 'Inasistencia a Sesiones',  unit: '%' },
-      { value: 'session_license_pct',  label: 'Inasistencia con Licencia', unit: '%' },
-      { value: 'session_absent_pct',   label: 'Inasistencia sin Licencia', unit: '%' },
-      { value: 'voting_attendance_pct', label: 'Asistencia a Votaciones', unit: '%' },
-      { value: 'voting_absence_pct',   label: 'Ausencia en Votaciones',   unit: '%' },
-      { value: 'favor_pct',            label: 'Votos A Favor',            unit: '%' },
-      { value: 'voting_against_pct',   label: 'Votos en Contra',          unit: '%' },
-      { value: 'majority_pct',         label: 'Con Mayoría',              unit: '%' },
-      { value: 'minority_pct',         label: 'Con Minoría',              unit: '%' },
+      {
+        value: 'att_pct', label: '% Asistencia a Sesiones', unit: '%',
+        description: 'Porcentaje de sesiones plenarias a las que el diputado se presentó.',
+        formula: 'sesiones presente ÷ total de sesiones',
+      },
+      {
+        value: 'session_absence_pct', label: '% Inasistencia a Sesiones', unit: '%',
+        description: 'Porcentaje de sesiones en las que el diputado no estuvo presente, ya sea con o sin licencia.',
+        formula: 'sesiones ausente ÷ total de sesiones',
+      },
+      {
+        value: 'session_license_pct', label: '% Inasistencia con Licencia', unit: '%',
+        description: 'Porcentaje de sesiones en las que el diputado faltó con licencia.',
+        formula: 'sesiones ausente con licencia ÷ total de sesiones',
+      },
+      {
+        value: 'session_absent_pct', label: '% Inasistencia sin Licencia', unit: '%',
+        description: 'Porcentaje de sesiones en las que el diputado faltó sin ninguna justificación.',
+        formula: 'sesiones ausente sin justificación ÷ total de sesiones',
+      },
+      {
+        value: 'voting_attendance_pct', label: '% Participación en Votaciones', unit: '%',
+        description: 'Porcentaje de votaciones en las que el diputado emitió un voto real (a favor o en contra).',
+        formula: '(votos a favor + votos en contra) ÷ total de votaciones',
+      },
+      {
+        value: 'voting_absence_pct', label: '% Ausencia en Votaciones', unit: '%',
+        description: 'Porcentaje de votaciones en las que el diputado figuró como ausente y no emitió voto.',
+        formula: 'votaciones ausente ÷ total de votaciones',
+      },
+      {
+        value: 'voting_in_favor_pct', label: '% Votos A Favor', unit: '%',
+        description: 'Porcentaje de votos emitidos a favor sobre el total de votaciones en las que participó.',
+        formula: 'votos a favor ÷ total de votaciones presente',
+      },
+      {
+        value: 'voting_against_pct', label: '% Votos en Contra', unit: '%',
+        description: 'Porcentaje de votos emitidos en contra sobre el total de votaciones en las que participó.',
+        formula: 'votos en contra ÷ total de votaciones presente',
+      },
+      {
+        value: 'majority_pct', label: '% Votos con Mayoría', unit: '%',
+        description: 'Porcentaje de veces que el diputado votó en el mismo sentido que la mayoría en la votación.',
+        formula: 'votos alineados con la mayoría ÷ total de votaciones presente',
+      },
+      {
+        value: 'minority_pct', label: '% Votos con Minoría', unit: '%',
+        description: 'Porcentaje de veces que el diputado votó en sentido contrario a la mayoría en la votación.',
+        formula: 'votos contrarios a la mayoría ÷ total de votaciones presente',
+      },
     ],
     parties: [
-      { value: 'att_pct',    label: 'Asistencia',    unit: '%' },
-      { value: 'favor_pct',  label: 'Votos A Favor', unit: '%' },
-      { value: 'rice_index', label: 'Índice Rice',   unit: '%' },
+      {
+        value: 'att_pct', label: 'Asistencia', unit: '%',
+        description: 'Promedio de asistencia de todos los diputados del partido a las sesiones plenarias.',
+        formula: 'sesiones presente ÷ total de sesiones (promedio del partido)',
+      },
+      {
+        value: 'voting_in_favor_pct', label: 'Votos A Favor', unit: '%',
+        description: 'Porcentaje de votos a favor emitidos por los diputados del partido sobre el total de votos registrados.',
+        formula: 'votos a favor ÷ total de votos del partido',
+      },
+      {
+        value: 'rice_index', label: 'Índice Rice', unit: '%',
+        description: 'Mide la cohesión interna del partido en votaciones. Un valor alto (100%) indica que todos votan igual; un valor bajo (0%) indica división total.',
+        formula: 'promedio de (|# a favor − # en contra| ÷ total votos emitidos) por votación',
+      },
     ],
     districts: [
-      { value: 'att_pct',    label: 'Asistencia',    unit: '%' },
-      { value: 'favor_pct',  label: 'Votos A Favor', unit: '%' },
-      { value: 'rice_index', label: 'Índice Rice',   unit: '%' },
+      {
+        value: 'att_pct', label: 'Asistencia', unit: '%',
+        description: 'Promedio de asistencia de los diputados del distrito a las sesiones plenarias.',
+        formula: 'sesiones presente ÷ total de sesiones (promedio del distrito)',
+      },
+      {
+        value: 'voting_in_favor_pct', label: 'Votos A Favor', unit: '%',
+        description: 'Porcentaje de votos a favor emitidos por los diputados del distrito sobre el total de votos registrados.',
+        formula: 'votos a favor ÷ total de votos del distrito',
+      },
+      {
+        value: 'rice_index', label: 'Índice Rice', unit: '%',
+        description: 'Mide la cohesión interna del distrito en votaciones. Un valor alto indica que los diputados votan de manera uniforme.',
+        formula: 'promedio de (|# a favor − # en contra| ÷ total votos emitidos) por votación',
+      },
     ],
     blocks: [
-      { value: 'att_pct',    label: 'Asistencia',    unit: '%' },
-      { value: 'favor_pct',  label: 'Votos A Favor', unit: '%' },
-      { value: 'rice_index', label: 'Índice Rice',   unit: '%' },
+      {
+        value: 'att_pct', label: 'Asistencia', unit: '%',
+        description: 'Promedio de asistencia de los integrantes de la bancada a las sesiones plenarias.',
+        formula: 'sesiones presente ÷ total de sesiones (promedio de la bancada)',
+      },
+      {
+        value: 'voting_in_favor_pct', label: 'Votos A Favor', unit: '%',
+        description: 'Porcentaje de votos a favor emitidos por los integrantes de la bancada sobre el total de votos registrados.',
+        formula: 'votos a favor ÷ total de votos de la bancada',
+      },
+      {
+        value: 'rice_index', label: 'Índice Rice', unit: '%',
+        description: 'Mide la cohesión interna de la bancada en votaciones. Un valor alto indica que los miembros votan de manera uniforme; un valor bajo indica división interna.',
+        formula: 'promedio de (|# a favor − # en contra| ÷ total votos emitidos) por votación',
+      },
     ],
   };
 
@@ -236,13 +329,15 @@ const allData = {
     blocks:      'bancadas',
   };
 
-  const filterPeriod   = document.getElementById('filterPeriod');
-  const filterEntity   = document.getElementById('filterEntity');
-  const filterRanking  = document.getElementById('filterRanking');
-  const searchName     = document.getElementById('searchName');
-  const rankBody       = document.getElementById('rankBody');
-  const resultsCount   = document.getElementById('resultsCount');
-  const colValueHeader = document.getElementById('colValueHeader');
+  const filterPeriod      = document.getElementById('filterPeriod');
+  const filterEntity      = document.getElementById('filterEntity');
+  const filterRanking     = document.getElementById('filterRanking');
+  const searchName        = document.getElementById('searchName');
+  const rankBody          = document.getElementById('rankBody');
+  const resultsCount      = document.getElementById('resultsCount');
+  const colValueHeader    = document.getElementById('colValueHeader');
+  const rankingInfoDesc    = document.getElementById('rankingInfoDesc');
+  const rankingInfoFormula = document.getElementById('rankingInfoFormula');
 
   function esc(str) {
     return String(str)
@@ -261,11 +356,20 @@ const allData = {
     if (metric === 'session_absent_pct')    return `${row.att_absent} / ${row.att_total}`;
     if (metric === 'voting_attendance_pct') return `${row.vote_present} / ${row.vote_total}`;
     if (metric === 'voting_absence_pct')    return `${row.vote_absent} / ${row.vote_total}`;
-    if (metric === 'favor_pct')             return `${row.vote_in_favor} / ${row.vote_total}`;
-    if (metric === 'voting_against_pct')    return `${row.vote_against} / ${row.vote_total}`;
-    if (metric === 'majority_pct')          return `${row.with_majority} / ${row.vote_total}`;
-    if (metric === 'minority_pct')          return `${row.with_minority} / ${row.vote_total}`;
+    if (metric === 'voting_in_favor_pct')   return `${row.vote_in_favor} / ${row.vote_present}`;
+    if (metric === 'voting_against_pct')    return `${row.vote_against} / ${row.vote_present}`;
+    if (metric === 'majority_pct')          return `${row.with_majority} / ${row.vote_present}`;
+    if (metric === 'minority_pct')          return `${row.with_minority} / ${row.vote_present}`;
     return '';
+  }
+
+  function updateRankingInfo() {
+    const entity     = filterEntity.value;
+    const metric     = filterRanking.value;
+    const rankings   = RANKINGS[entity];
+    const rankingDef = rankings.find(r => r.value === metric) ?? rankings[0];
+    rankingInfoDesc.textContent    = rankingDef.description;
+    rankingInfoFormula.textContent = rankingDef.formula;
   }
 
   function syncRankingOptions() {
@@ -275,6 +379,7 @@ const allData = {
     filterRanking.innerHTML = rankings
       .map(r => `<option value="${r.value}"${r.value === current ? ' selected' : ''}>${esc(r.label)}</option>`)
       .join('');
+    updateRankingInfo();
   }
 
   function render() {
@@ -337,7 +442,7 @@ const allData = {
 
   filterPeriod.addEventListener('change', render);
   filterEntity.addEventListener('change', () => { syncRankingOptions(); render(); });
-  filterRanking.addEventListener('change', render);
+  filterRanking.addEventListener('change', () => { updateRankingInfo(); render(); });
   searchName.addEventListener('input', render);
 
   syncRankingOptions();
@@ -385,6 +490,46 @@ const allData = {
   .filter-group input:focus,
   .filter-group select:focus {
     border-color: var(--accent-color);
+  }
+
+  .ranking-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.85rem 1rem;
+    margin-bottom: 1.5rem;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent-color) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent);
+  }
+
+  .ranking-info-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    color: var(--accent-color);
+  }
+
+  .ranking-info-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .ranking-info-desc {
+    font-size: 0.85rem;
+    color: var(--text-main);
+    line-height: 1.45;
+    margin: 0;
+  }
+
+  .ranking-info-formula {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    margin: 0;
   }
 
   .results-count {
@@ -569,12 +714,11 @@ const allData = {
     :global(.rank-row) { padding: 0.5rem 0.75rem; gap: 0.5rem; }
     :global(.rank-row .col-name) { gap: 0.4rem; }
 
-    /* Keep the value visible but compact: drop the bar and helper fraction */
-    .col-value { width: 60px; }
-    :global(.rank-row .col-value) { width: 60px; flex-direction: column; gap: 0; }
+    /* Compact value column: drop the bar, show number + helper fraction stacked */
+    .col-value { width: 88px; }
+    :global(.rank-row .col-value) { width: 88px; flex-direction: column; gap: 0; }
     :global(.bar-track) { display: none; }
-    :global(.bar-helper) { display: none; }
-    :global(.bar-meta) { min-width: unset; align-items: center; }
+    :global(.bar-meta) { min-width: unset; align-items: flex-end; }
 
     :global(.row-photo) { width: 28px; height: 28px; }
     :global(.row-logo)  { width: 28px; height: 28px; }
