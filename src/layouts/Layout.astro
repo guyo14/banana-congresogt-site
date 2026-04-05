@@ -1,5 +1,14 @@
 ---
 import '../styles/global.css';
+import {
+	BLOCKS_PATH,
+	CONGRESSMEN_PATH,
+	DISTRICTS_PATH,
+	PARTIES_PATH,
+	RANKINGS_PATH,
+	SESSIONS_PATH,
+	VOTING_PATH
+} from "../lib/paths.ts";
 
 interface Props {
 	title: string;
@@ -36,14 +45,13 @@ const { title, description = "Analiza el comportamiento y las votaciones de los 
 				</button>
 			</div>
 			<div class="nav-links" id="navLinks">
-				<a href="/diputados">Diputados</a>
-				<a href="/distritos">Distritos</a>
-				<a href="/bancadas">Bancadas</a>
-				<a href="/partidos">Partidos</a>
-				<a href="/sesiones">Sesiones</a>
-				<a href="/votaciones">Votaciones</a>
-				<!-- In progress -->
-				<!-- <a href="/ranking">Ranking</a> -->
+				<a href={CONGRESSMEN_PATH}>Diputados</a>
+				<a href={DISTRICTS_PATH}>Distritos</a>
+				<a href={BLOCKS_PATH}>Bancadas</a>
+				<a href={PARTIES_PATH}>Partidos</a>
+				<a href={SESSIONS_PATH}>Sesiones</a>
+				<a href={VOTING_PATH}>Votaciones</a>
+				<a href={RANKINGS_PATH}>Clasificaciones</a>
 				<!-- <a href="/compare">Comparar</a> -->
 			</div>
 		</div>

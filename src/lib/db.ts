@@ -88,6 +88,7 @@ interface CongressmanStats {
     votes_against: number;
     votes_absent: number;
     votes_with_majority: number;
+    votes_against_majority: number;
 }
 
 interface PartyStats {
@@ -216,6 +217,7 @@ CREATE TABLE IF NOT EXISTS congressman_stats (
     votes_against INTEGER NOT NULL,
     votes_absent INTEGER NOT NULL,
     votes_with_majority INTEGER NOT NULL,
+    votes_against_majority INTEGER NOT NULL,
     PRIMARY KEY (id, period)
 );
 
@@ -313,7 +315,7 @@ function ingestData() {
     const insertAttendance = db.prepare<Attendance>('INSERT INTO attendance (session_id, congressman_id, status) VALUES (@session_id, @congressman_id, @status)');
 
     // Prep statements for aggregated data
-    const insertCStats = db.prepare<CongressmanStats>('INSERT INTO congressman_stats (id, period, attendance_present, attendance_absent, attendance_license, votes_in_favor, votes_against, votes_absent, votes_with_majority) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_license, @votes_in_favor, @votes_against, @votes_absent, @votes_with_majority)');
+    const insertCStats = db.prepare<CongressmanStats>('INSERT INTO congressman_stats (id, period, attendance_present, attendance_absent, attendance_license, votes_in_favor, votes_against, votes_absent, votes_with_majority, votes_against_majority) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_license, @votes_in_favor, @votes_against, @votes_absent, @votes_with_majority, @votes_against_majority)');
     const insertPStats = db.prepare<PartyStats>('INSERT INTO party_stats (id, period, attendance_present, attendance_absent, attendance_license, votes_in_favor, votes_against, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_license, @votes_in_favor, @votes_against, @votes_absent, @rice_index)');
     const insertDStats = db.prepare<DistrictStats>('INSERT INTO district_stats (id, period, attendance_present, attendance_absent, attendance_license, votes_in_favor, votes_against, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_license, @votes_in_favor, @votes_against, @votes_absent, @rice_index)');
     const insertBStats = db.prepare<BlockStats>('INSERT INTO block_stats (id, period, attendance_present, attendance_absent, attendance_license, votes_in_favor, votes_against, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_license, @votes_in_favor, @votes_against, @votes_absent, @rice_index)');

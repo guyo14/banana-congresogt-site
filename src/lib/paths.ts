@@ -1,9 +1,10 @@
 export const CONGRESSMEN_PATH = "/diputados";
-export const DISTRICT_PATH = "/distritos";
+export const DISTRICTS_PATH = "/distritos";
 export const BLOCKS_PATH = "/bancadas";
 export const PARTIES_PATH = "/partidos";
 export const SESSIONS_PATH = "/sesiones";
-export const VOTES_PATH = "/votaciones";
+export const VOTING_PATH = "/votaciones";
+export const RANKINGS_PATH = "/rankings";
 
 export function getCongressmanPath(id: number) {
   return `/diputados/${id}`;

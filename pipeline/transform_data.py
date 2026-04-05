@@ -207,18 +207,20 @@ def run_transform():
             'votes_in_favor': (x['vote_type'] == VoteType.in_favor.value).sum(),
             'votes_against': (x['vote_type'] == VoteType.against.value).sum(),
             'votes_absent': (x['vote_type'] == VoteType.absent.value).sum(),
-            'votes_with_majority': x['with_majority'].sum()
+            'votes_with_majority': (x['with_majority'] == WithMajority.yes.value).sum(),
+            'votes_against_majority': (x['with_majority'] == WithMajority.no.value).sum(),
         })).reset_index()
         v_tot = v_df.groupby('congressman_id').apply(lambda x: pd.Series({
             'votes_in_favor': (x['vote_type'] == VoteType.in_favor.value).sum(),
             'votes_against': (x['vote_type'] == VoteType.against.value).sum(),
             'votes_absent': (x['vote_type'] == VoteType.absent.value).sum(),
-            'votes_with_majority': x['with_majority'].sum()
+            'votes_with_majority': (x['with_majority'] == WithMajority.yes.value).sum(),
+            'votes_against_majority': (x['with_majority'] == WithMajority.no.value).sum(),
         })).reset_index()
         v_tot['period'] = 'total'
         v_all = pd.concat([v_grp, v_tot])
     else:
-        v_all = pd.DataFrame(columns=['congressman_id', 'period', 'votes_in_favor', 'votes_against', 'votes_absent', 'votes_with_majority'])
+        v_all = pd.DataFrame(columns=['congressman_id', 'period', 'votes_in_favor', 'votes_against', 'votes_absent', 'votes_with_majority', 'votes_against_majority'])
 
     c_stats = pd.merge(a_all, v_all, on=['congressman_id', 'period'], how='outer').fillna(0)
     c_stats.rename(columns={'congressman_id': 'id'}, inplace=True)

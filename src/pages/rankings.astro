@@ -29,7 +29,8 @@ const rawCongressmen = db.prepare(`
     cs.votes_in_favor,
     cs.votes_against,
     cs.votes_absent,
-    cs.votes_with_majority
+    cs.votes_with_majority,
+    cs.votes_against_majority
   FROM congressman_stats cs
   JOIN congressmen c ON cs.id = c.id
   LEFT JOIN blocks b ON c.block_id = b.id
@@ -76,12 +77,25 @@ const allData = {
       photo: getCongressmanPhotoPath(row.id),
       att_pct: pct(row.attendance_present, attT),
       att_present: row.attendance_present,
+      att_absent: row.attendance_absent,
+      att_license: row.attendance_license,
       att_total: attT,
+      session_absence_pct: pct(row.attendance_absent + row.attendance_license, attT),
+      session_license_pct: pct(row.attendance_license, attT),
+      session_absent_pct:  pct(row.attendance_absent, attT),
       favor_pct: pct(row.votes_in_favor, votT),
       vote_in_favor: row.votes_in_favor,
+      vote_against: row.votes_against,
+      vote_absent: row.votes_absent,
+      vote_present: row.votes_in_favor + row.votes_against,
       vote_total: votT,
       majority_pct: pct(row.votes_with_majority, votT),
       with_majority: row.votes_with_majority,
+      minority_pct: pct(row.votes_against_majority, votT),
+      with_minority: row.votes_against_majority,
+      voting_attendance_pct: pct(row.votes_in_favor + row.votes_against, votT),
+      voting_absence_pct:    pct(row.votes_absent, votT),
+      voting_against_pct:    pct(row.votes_against, votT),
     };
   }),
   parties: groupByPeriod(rawParties, (row) => {
@@ -187,9 +201,16 @@ const allData = {
 
   const RANKINGS = {
     congressmen: [
-      { value: 'att_pct',      label: 'Asistencia',    unit: '%' },
-      { value: 'favor_pct',    label: 'Votos A Favor',  unit: '%' },
-      { value: 'majority_pct', label: 'Con Mayoría',    unit: '%' },
+      { value: 'att_pct',              label: 'Asistencia a Sesiones',    unit: '%' },
+      { value: 'session_absence_pct',  label: 'Inasistencia a Sesiones',  unit: '%' },
+      { value: 'session_license_pct',  label: 'Inasistencia con Licencia', unit: '%' },
+      { value: 'session_absent_pct',   label: 'Inasistencia sin Licencia', unit: '%' },
+      { value: 'voting_attendance_pct', label: 'Asistencia a Votaciones', unit: '%' },
+      { value: 'voting_absence_pct',   label: 'Ausencia en Votaciones',   unit: '%' },
+      { value: 'favor_pct',            label: 'Votos A Favor',            unit: '%' },
+      { value: 'voting_against_pct',   label: 'Votos en Contra',          unit: '%' },
+      { value: 'majority_pct',         label: 'Con Mayoría',              unit: '%' },
+      { value: 'minority_pct',         label: 'Con Minoría',              unit: '%' },
     ],
     parties: [
       { value: 'att_pct',    label: 'Asistencia',    unit: '%' },
@@ -229,17 +250,21 @@ const allData = {
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  function barColor(metric, value) {
-    if (metric === 'att_pct') {
-      return value >= 80 ? 'var(--color-favor)' : value >= 50 ? '#f0a500' : 'var(--color-contra)';
-    }
-    return 'var(--accent-color)';
+  function barColor() {
+    return '#00b2e3';
   }
 
   function getHelper(row, metric) {
-    if (metric === 'att_pct')      return `${row.att_present} / ${row.att_total}`;
-    if (metric === 'favor_pct')    return `${row.vote_in_favor} / ${row.vote_total}`;
-    if (metric === 'majority_pct') return `${row.with_majority} / ${row.vote_total}`;
+    if (metric === 'att_pct')               return `${row.att_present} / ${row.att_total}`;
+    if (metric === 'session_absence_pct')   return `${row.att_absent + row.att_license} / ${row.att_total}`;
+    if (metric === 'session_license_pct')   return `${row.att_license} / ${row.att_total}`;
+    if (metric === 'session_absent_pct')    return `${row.att_absent} / ${row.att_total}`;
+    if (metric === 'voting_attendance_pct') return `${row.vote_present} / ${row.vote_total}`;
+    if (metric === 'voting_absence_pct')    return `${row.vote_absent} / ${row.vote_total}`;
+    if (metric === 'favor_pct')             return `${row.vote_in_favor} / ${row.vote_total}`;
+    if (metric === 'voting_against_pct')    return `${row.vote_against} / ${row.vote_total}`;
+    if (metric === 'majority_pct')          return `${row.with_majority} / ${row.vote_total}`;
+    if (metric === 'minority_pct')          return `${row.with_minority} / ${row.vote_total}`;
     return '';
   }
 
@@ -539,7 +564,26 @@ const allData = {
 
   @media (max-width: 480px) {
     .filters { grid-template-columns: 1fr; }
-    .col-value { display: none; }
-    :global(.rank-row .col-value) { display: none; }
+
+    .rank-header { padding: 0.5rem 0.75rem; gap: 0.5rem; }
+    :global(.rank-row) { padding: 0.5rem 0.75rem; gap: 0.5rem; }
+    :global(.rank-row .col-name) { gap: 0.4rem; }
+
+    /* Keep the value visible but compact: drop the bar and helper fraction */
+    .col-value { width: 60px; }
+    :global(.rank-row .col-value) { width: 60px; flex-direction: column; gap: 0; }
+    :global(.bar-track) { display: none; }
+    :global(.bar-helper) { display: none; }
+    :global(.bar-meta) { min-width: unset; align-items: center; }
+
+    :global(.row-photo) { width: 28px; height: 28px; }
+    :global(.row-logo)  { width: 28px; height: 28px; }
+  }
+
+  @media (max-width: 360px) {
+    .col-rank { width: 24px; }
+    :global(.rank-row .col-rank) { width: 24px; }
+    :global(.row-photo) { width: 24px; height: 24px; }
+    :global(.row-logo)  { width: 24px; height: 24px; }
   }
 </style>
