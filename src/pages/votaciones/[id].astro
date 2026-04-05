@@ -1,9 +1,7 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import db from "../../lib/db.ts";
 import DoughnutChart from "../../components/DoughnutChart.astro";
 import GroupedActionTabs from "../../components/GroupedActionTabs.astro";
-import type { NoParams, IdQuery } from "../../lib/types.ts";
 import {
   getSessionTypeString,
   VOTE_TYPE,
@@ -19,12 +17,8 @@ export async function getStaticPaths() {
 
 const id = Number.parseInt(Astro.params.id);
 
-// Fetch all voting IDs to compute global number
-const allVoting = db
-  .prepare<NoParams, IdQuery>(
-    `SELECT v.id FROM voting v JOIN sessions s ON v.session_id = s.id ORDER BY s.start_date DESC, v.id DESC`,
-  )
-  .all();
+// Fetch all voting IDs to compute the global number
+const allVoting = getAllVotingId();
 const globalNumber = allVoting.length - allVoting.findIndex((v) => v.id === id);
 
 const voting = getVotingById(id);

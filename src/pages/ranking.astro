@@ -1,224 +1,407 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import db from '../lib/db.js';
+import db from '../lib/db.ts';
+import {
+  getCongressmanPath,
+  getCongressmanPhotoPath,
+  getDistrictPath,
+  getPartyPath,
+  getPartyImagePath,
+  getBlockPath,
+  getBlockImagePath,
+} from '../lib/paths.ts';
+import {CONGRESSMAN_STATUS} from "../lib/mappers.ts";
 
-// Fetch all diputados with attendance and votaciones stats (subqueries avoid Cartesian product)
-const congressmen = db.prepare(`
+function pct(num: number, denom: number): number {
+  return denom > 0 ? Math.round((num / denom) * 1000) / 10 : 0;
+}
+
+const rawCongressmen = db.prepare(`
   SELECT
     c.id,
-    c.first_name,
-    c.last_name,
-    p.name  AS party_name,
-    d.name  AS district_name,
-    COALESCE(att.att_pct,   0) AS att_pct,
-    COALESCE(vot.favor_pct, 0) AS favor_pct
-  FROM congressmen c
-  LEFT JOIN parties   p ON p.id = c.party_id
-  LEFT JOIN districts d ON d.id = c.district_id
-  LEFT JOIN (
-    SELECT
-      congressman_id,
-      ROUND(
-        100.0 * SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END)
-        / COUNT(*)
-      , 1) AS att_pct
-    FROM attendance
-    GROUP BY congressman_id
-  ) att ON att.congressman_id = c.id
-  LEFT JOIN (
-    SELECT
-      congressman_id,
-      ROUND(
-        100.0 * SUM(CASE WHEN vote_type = 'in_favor' THEN 1 ELSE 0 END)
-        / COUNT(*)
-      , 1) AS favor_pct
-    FROM votes
-    GROUP BY congressman_id
-  ) vot ON vot.congressman_id = c.id
-  ORDER BY att_pct DESC, c.first_name, c.last_name
-`).all();
+    c.first_name   AS firstName,
+    c.last_name    AS lastName,
+    COALESCE(b.short_name, 'Independiente') AS badge,
+    cs.period,
+    cs.attendance_present,
+    cs.attendance_absent,
+    cs.attendance_license,
+    cs.votes_in_favor,
+    cs.votes_against,
+    cs.votes_absent,
+    cs.votes_with_majority
+  FROM congressman_stats cs
+  JOIN congressmen c ON cs.id = c.id
+  LEFT JOIN blocks b ON c.block_id = b.id
+  WHERE c.status = ${CONGRESSMAN_STATUS.ACTIVE}
+`).all() as any[];
 
-// Assign rank after sorting
-const ranked = congressmen.map((c, i) => ({ ...c, rank: i + 1 }));
+const rawParties = db.prepare(`
+  SELECT p.id, p.short_name AS name, ps.period,
+    ps.attendance_present, ps.attendance_absent, ps.attendance_license,
+    ps.votes_in_favor, ps.votes_against, ps.votes_absent, ps.rice_index
+  FROM party_stats ps JOIN parties p ON ps.id = p.id
+`).all() as any[];
+
+const rawDistricts = db.prepare(`
+  SELECT d.id, d.name, ds.period,
+    ds.attendance_present, ds.attendance_absent, ds.attendance_license,
+    ds.votes_in_favor, ds.votes_against, ds.votes_absent, ds.rice_index
+  FROM district_stats ds JOIN districts d ON ds.id = d.id
+`).all() as any[];
+
+const rawBlocks = db.prepare(`
+  SELECT b.id, b.short_name AS name, bs.period,
+    bs.attendance_present, bs.attendance_absent, bs.attendance_license,
+    bs.votes_in_favor, bs.votes_against, bs.votes_absent, bs.rice_index
+  FROM block_stats bs JOIN blocks b ON bs.id = b.id
+`).all() as any[];
+
+function groupByPeriod(rows: any[], fn: (row: any) => object): Record<string, object[]> {
+  const out: Record<string, object[]> = {};
+  for (const row of rows) {
+    (out[row.period] ??= []).push(fn(row));
+  }
+  return out;
+}
+
+const allData = {
+  congressmen: groupByPeriod(rawCongressmen, (row) => {
+    const attT = row.attendance_present + row.attendance_absent + row.attendance_license;
+    const votT = row.votes_in_favor + row.votes_against + row.votes_absent;
+    return {
+      name: `${row.firstName} ${row.lastName}`,
+      badge: row.badge,
+      path: getCongressmanPath(row.id),
+      photo: getCongressmanPhotoPath(row.id),
+      att_pct: pct(row.attendance_present, attT),
+      att_present: row.attendance_present,
+      att_total: attT,
+      favor_pct: pct(row.votes_in_favor, votT),
+      vote_in_favor: row.votes_in_favor,
+      vote_total: votT,
+      majority_pct: pct(row.votes_with_majority, votT),
+      with_majority: row.votes_with_majority,
+    };
+  }),
+  parties: groupByPeriod(rawParties, (row) => {
+    const attT = row.attendance_present + row.attendance_absent + row.attendance_license;
+    const votT = row.votes_in_favor + row.votes_against + row.votes_absent;
+    return {
+      name: row.name,
+      path: getPartyPath(row.id),
+      photo: getPartyImagePath(row.id),
+      att_pct: pct(row.attendance_present, attT),
+      att_present: row.attendance_present,
+      att_total: attT,
+      favor_pct: pct(row.votes_in_favor, votT),
+      vote_in_favor: row.votes_in_favor,
+      vote_total: votT,
+      rice_index: Math.round(Number(row.rice_index) * 1000) / 10,
+    };
+  }),
+  districts: groupByPeriod(rawDistricts, (row) => {
+    const attT = row.attendance_present + row.attendance_absent + row.attendance_license;
+    const votT = row.votes_in_favor + row.votes_against + row.votes_absent;
+    return {
+      name: row.name,
+      path: getDistrictPath(row.id),
+      photo: `/distritos/${row.id}.svg`,
+      att_pct: pct(row.attendance_present, attT),
+      att_present: row.attendance_present,
+      att_total: attT,
+      favor_pct: pct(row.votes_in_favor, votT),
+      vote_in_favor: row.votes_in_favor,
+      vote_total: votT,
+      rice_index: Math.round(Number(row.rice_index) * 1000) / 10,
+    };
+  }),
+  blocks: groupByPeriod(rawBlocks, (row) => {
+    const attT = row.attendance_present + row.attendance_absent + row.attendance_license;
+    const votT = row.votes_in_favor + row.votes_against + row.votes_absent;
+    return {
+      name: row.name,
+      path: getBlockPath(row.id),
+      photo: getBlockImagePath(row.id),
+      att_pct: pct(row.attendance_present, attT),
+      att_present: row.attendance_present,
+      att_total: attT,
+      favor_pct: pct(row.votes_in_favor, votT),
+      vote_in_favor: row.votes_in_favor,
+      vote_total: votT,
+      rice_index: Math.round(Number(row.rice_index) * 1000) / 10,
+    };
+  }),
+};
 ---
 
-<Layout title="Ranking de Diputados">
+<Layout title="Ranking del Congreso">
   <div class="page-header">
-    <h1>Ranking de Diputados</h1>
-    <p class="text-muted">Comparación de los {ranked.length} diputados del Congreso ordenada por desempeño.</p>
+    <h1>Ranking del Congreso</h1>
   </div>
 
-  <!-- Controls -->
-  <div class="controls glass-panel">
-    <div class="control-group" style="flex:1">
-      <label for="rankSearch">Buscar diputado o bancada</label>
-      <input id="rankSearch" type="text" placeholder="Ej. Giammattei, VAMOS..." />
-    </div>
-    <div class="control-group">
-      <label for="sortBy">Ordenar por</label>
-      <select id="sortBy">
-        <option value="att_desc">Mayor asistencia</option>
-        <option value="att_asc">Menor asistencia</option>
-        <option value="favor_desc">Mayor % A Favor</option>
-        <option value="name_asc">Nombre A-Z</option>
+  <div class="filters">
+    <div class="filter-group">
+      <label for="filterPeriod">Período</label>
+      <select id="filterPeriod">
+        <option value="total">Período Completo</option>
+        <option value="2024">2024</option>
+        <option value="2025">2025</option>
+        <option value="2026">2026</option>
+        <option value="2027">2027</option>
       </select>
     </div>
+    <div class="filter-group">
+      <label for="filterEntity">Entidad</label>
+      <select id="filterEntity">
+        <option value="congressmen">Diputados</option>
+        <option value="districts">Distritos</option>
+        <option value="parties">Partidos</option>
+        <option value="blocks">Bancadas</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label for="filterRanking">Ranking</label>
+      <select id="filterRanking"></select>
+    </div>
   </div>
 
-  <p class="results-count" id="rankCount">{ranked.length} diputados</p>
+  <p class="results-count" id="resultsCount"></p>
 
-  <!-- Table -->
-  <div class="rank-table" id="rankTable">
+  <div class="filter-inline">
+    <input type="text" id="searchName" placeholder="Buscar por nombre..." />
+  </div>
+
+  <div class="rank-table glass-panel">
     <div class="rank-header">
       <span class="col-rank">#</span>
-      <span class="col-name">Diputado</span>
-      <span class="col-bar">Asistencia</span>
-      <span class="col-bar">A Favor</span>
+      <span class="col-name">Nombre</span>
+      <span class="col-value" id="colValueHeader">—</span>
     </div>
-
-    {ranked.map(c => {
-      const attColor   = c.att_pct   >= 80 ? 'var(--color-favor)' : c.att_pct   >= 50 ? '#f0a500' : 'var(--color-contra)';
-      const favorColor = c.favor_pct >= 60 ? 'var(--color-favor)' : c.favor_pct >= 40 ? '#f0a500' : 'var(--color-contra)';
-      return (
-        <a
-          href={`/congressman/${c.id}`}
-          class="rank-row"
-          data-name={`${c.first_name} ${c.last_name} ${c.party_name ?? ''}`.toLowerCase()}
-          data-att={c.att_pct}
-          data-favor={c.favor_pct}
-          data-firstname={c.first_name}
-        >
-          <span class="col-rank rank-num" data-rank={c.rank}>{c.rank}</span>
-
-          <span class="col-name">
-            <img
-              src={`/congressmen/face/${c.id}.jpg`}
-              alt=""
-              class="row-photo"
-              loading="lazy"
-              onerror="this.src='/placeholder.svg'; this.onerror=null;"
-            />
-            <span class="row-info">
-              <span class="row-fullname">{c.first_name} {c.last_name}</span>
-              <span class="row-party">{c.party_name ?? '—'} · {c.district_name ?? '—'}</span>
-            </span>
-          </span>
-
-          <span class="col-bar">
-            <span class="bar-track">
-              <span class="bar-fill" style={`width:${c.att_pct}%; background:${attColor}`}></span>
-            </span>
-            <span class="bar-value" style={`color:${attColor}`}>{c.att_pct}%</span>
-          </span>
-
-          <span class="col-bar">
-            <span class="bar-track">
-              <span class="bar-fill" style={`width:${c.favor_pct}%; background:${favorColor}`}></span>
-            </span>
-            <span class="bar-value" style={`color:${favorColor}`}>{c.favor_pct}%</span>
-          </span>
-        </a>
-      );
-    })}
+    <div id="rankBody"></div>
   </div>
 </Layout>
 
-<script>
-  const searchInput = document.getElementById('rankSearch') as HTMLInputElement;
-  const sortSelect  = document.getElementById('sortBy')    as HTMLSelectElement;
-  const table       = document.getElementById('rankTable')!;
-  const countEl     = document.getElementById('rankCount')!;
-  const rows        = Array.from(table.querySelectorAll<HTMLElement>('.rank-row'));
+<script define:vars={{ allData }}>
+  const DATA = allData;
 
-  function applyAll() {
-    const q = searchInput.value.toLowerCase().trim();
+  const RANKINGS = {
+    congressmen: [
+      { value: 'att_pct',      label: 'Asistencia',    unit: '%' },
+      { value: 'favor_pct',    label: 'Votos A Favor',  unit: '%' },
+      { value: 'majority_pct', label: 'Con Mayoría',    unit: '%' },
+    ],
+    parties: [
+      { value: 'att_pct',    label: 'Asistencia',    unit: '%' },
+      { value: 'favor_pct',  label: 'Votos A Favor', unit: '%' },
+      { value: 'rice_index', label: 'Índice Rice',   unit: '%' },
+    ],
+    districts: [
+      { value: 'att_pct',    label: 'Asistencia',    unit: '%' },
+      { value: 'favor_pct',  label: 'Votos A Favor', unit: '%' },
+      { value: 'rice_index', label: 'Índice Rice',   unit: '%' },
+    ],
+    blocks: [
+      { value: 'att_pct',    label: 'Asistencia',    unit: '%' },
+      { value: 'favor_pct',  label: 'Votos A Favor', unit: '%' },
+      { value: 'rice_index', label: 'Índice Rice',   unit: '%' },
+    ],
+  };
 
-    // Sort
-    const sortKey = sortSelect.value;
-    rows.sort((a, b) => {
-      if (sortKey === 'att_desc')   return Number(b.dataset.att)   - Number(a.dataset.att);
-      if (sortKey === 'att_asc')    return Number(a.dataset.att)   - Number(b.dataset.att);
-      if (sortKey === 'favor_desc') return Number(b.dataset.favor) - Number(a.dataset.favor);
-      // name_asc
-      return (a.dataset.firstname ?? '').localeCompare(b.dataset.firstname ?? '');
-    });
+  const ENTITY_LABEL = {
+    congressmen: 'diputados',
+    parties:     'partidos',
+    districts:   'distritos',
+    blocks:      'bancadas',
+  };
 
-    // Re-append in sorted order and filter
-    let visible = 0;
-    rows.forEach((row, i) => {
-      const match = !q || row.dataset.name!.includes(q);
-      row.style.display = match ? 'flex' : 'none';
-      if (match) {
-        visible++;
-        // Update rank number
-        const rankEl = row.querySelector<HTMLElement>('.rank-num');
-        if (rankEl) rankEl.textContent = String(visible);
-      }
-      table.appendChild(row); // re-order in DOM
-    });
+  const filterPeriod   = document.getElementById('filterPeriod');
+  const filterEntity   = document.getElementById('filterEntity');
+  const filterRanking  = document.getElementById('filterRanking');
+  const searchName     = document.getElementById('searchName');
+  const rankBody       = document.getElementById('rankBody');
+  const resultsCount   = document.getElementById('resultsCount');
+  const colValueHeader = document.getElementById('colValueHeader');
 
-    countEl.textContent = `${visible} diputados`;
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  searchInput.addEventListener('input', applyAll);
-  sortSelect.addEventListener('change', applyAll);
+  function barColor(metric, value) {
+    if (metric === 'att_pct') {
+      return value >= 80 ? 'var(--color-favor)' : value >= 50 ? '#f0a500' : 'var(--color-contra)';
+    }
+    return 'var(--accent-color)';
+  }
+
+  function getHelper(row, metric) {
+    if (metric === 'att_pct')      return `${row.att_present} / ${row.att_total}`;
+    if (metric === 'favor_pct')    return `${row.vote_in_favor} / ${row.vote_total}`;
+    if (metric === 'majority_pct') return `${row.with_majority} / ${row.vote_total}`;
+    return '';
+  }
+
+  function syncRankingOptions() {
+    const entity   = filterEntity.value;
+    const current  = filterRanking.value;
+    const rankings = RANKINGS[entity];
+    filterRanking.innerHTML = rankings
+      .map(r => `<option value="${r.value}"${r.value === current ? ' selected' : ''}>${esc(r.label)}</option>`)
+      .join('');
+  }
+
+  function render() {
+    const period  = filterPeriod.value;
+    const entity  = filterEntity.value;
+    const metric  = filterRanking.value;
+    const query   = searchName.value.toLowerCase().trim();
+
+    const rankings   = RANKINGS[entity];
+    const rankingDef = rankings.find(r => r.value === metric) ?? rankings[0];
+
+    colValueHeader.textContent = rankingDef.label;
+
+    // Sort and assign permanent ranks before filtering
+    const sorted = (DATA[entity]?.[period] ?? []).slice();
+    sorted.sort((a, b) => (b[metric] ?? 0) - (a[metric] ?? 0));
+    const ranked = sorted.map((row, i) => ({ ...row, rank: i + 1 }));
+
+    // Filter preserves original rank numbers
+    const visible = query ? ranked.filter(r => r.name.toLowerCase().includes(query)) : ranked;
+
+    resultsCount.textContent = `${ranked.length} ${ENTITY_LABEL[entity]}`;
+
+    if (visible.length === 0) {
+      rankBody.innerHTML = '<p class="no-data">Sin resultados.</p>';
+      return;
+    }
+
+    const isCongressman = entity === 'congressmen';
+
+    rankBody.innerHTML = visible.map((row) => {
+      const value = row[metric] ?? 0;
+      const color = barColor(metric, value);
+      const imgClass = isCongressman ? 'row-photo' : 'row-logo';
+
+      const imgHtml = `<img src="${esc(row.photo)}" alt="" class="${imgClass}" loading="lazy" onerror="this.style.visibility='hidden';">`;
+
+      const nameCol = `${imgHtml}
+        <span class="row-info">
+          <span class="row-fullname">${esc(row.name)}</span>
+          ${row.badge ? `<span class="row-badge">${esc(row.badge)}</span>` : ''}
+        </span>`;
+
+      const helper = getHelper(row, metric);
+      const barWidth = Math.min(100, Math.max(0, value));
+
+      return `<a href="${esc(row.path)}" class="rank-row">
+        <span class="col-rank rank-num">${row.rank}</span>
+        <span class="col-name">${nameCol}</span>
+        <span class="col-value">
+          <span class="bar-track"><span class="bar-fill" style="width:${barWidth}%;background:${color}"></span></span>
+          <span class="bar-meta">
+            <span class="bar-value" style="color:${color}">${value}${rankingDef.unit}</span>
+            ${helper ? `<span class="bar-helper">${esc(helper)}</span>` : ''}
+          </span>
+        </span>
+      </a>`;
+    }).join('');
+  }
+
+  filterPeriod.addEventListener('change', render);
+  filterEntity.addEventListener('change', () => { syncRankingOptions(); render(); });
+  filterRanking.addEventListener('change', render);
+  searchName.addEventListener('input', render);
+
+  syncRankingOptions();
+  render();
 </script>
 
 <style>
-  .page-header { margin-bottom: 2rem; }
+  .page-header {
+    margin-bottom: 2rem;
+  }
 
-  /* Controls */
-  .controls {
-    display: flex;
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1.5rem;
-    align-items: flex-end;
-    margin-bottom: 1rem;
-    padding: 1.25rem 1.5rem;
-    flex-wrap: wrap;
+    margin-bottom: 2rem;
   }
-  .control-group { display: flex; flex-direction: column; gap: 0.4rem; }
-  .control-group label {
-    font-size: 0.78rem; color: var(--text-muted);
-    font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
-  .control-group input,
-  .control-group select {
-    padding: 0.6rem 0.85rem;
+
+  .filter-group label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .filter-group input,
+  .filter-group select {
+    width: 100%;
+    padding: 0.75rem;
     border-radius: 8px;
     border: 1px solid var(--border-color);
     background: var(--bg-secondary);
     color: var(--text-main);
-    font-size: 0.9rem;
+    font-size: 1rem;
     font-family: inherit;
     outline: none;
     transition: border-color var(--transition-fast);
-    min-width: 200px;
   }
-  .control-group input:focus,
-  .control-group select:focus { border-color: var(--accent-color); }
 
-  .results-count { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; padding-left: 0.25rem; }
+  .filter-group input:focus,
+  .filter-group select:focus {
+    border-color: var(--accent-color);
+  }
 
-  /* Table */
+  .results-count {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+    padding-left: 0.25rem;
+  }
+
+  .filter-inline {
+    margin-bottom: 1.25rem;
+  }
+
+  .filter-inline input {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-size: 1rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--transition-fast);
+  }
+
+  .filter-inline input:focus {
+    border-color: var(--accent-color);
+  }
+
+  /* Table container */
   .rank-table {
     display: flex;
     flex-direction: column;
-    gap: 0;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
     overflow: hidden;
-    background: var(--bg-secondary);
   }
 
-  .rank-header,
-  .rank-row {
+  .rank-header {
     display: flex;
     align-items: center;
     gap: 1rem;
     padding: 0.6rem 1rem;
-  }
-
-  .rank-header {
     background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border-color);
     font-size: 0.72rem;
@@ -228,58 +411,135 @@ const ranked = congressmen.map((c, i) => ({ ...c, rank: i + 1 }));
     color: var(--text-muted);
   }
 
-  .rank-row {
+  /* Column widths — header (scoped) */
+  .col-rank  { width: 36px; flex-shrink: 0; text-align: center; }
+  .col-name  { flex: 1; min-width: 0; }
+  .col-value { width: 240px; flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem; }
+
+  /* Dynamic rows */
+  :global(.rank-row) {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.6rem 1rem;
     border-bottom: 1px solid var(--border-color);
     color: inherit;
-    transition: background var(--transition-fast);
     text-decoration: none;
+    transition: background var(--transition-fast);
   }
-  .rank-row:last-child { border-bottom: none; }
-  .rank-row:hover { background: var(--bg-tertiary); }
+  :global(.rank-row:last-child) { border-bottom: none; }
+  :global(.rank-row:hover)      { background: var(--bg-tertiary); }
 
-  /* Column widths */
-  .col-rank  { width: 36px; flex-shrink: 0; text-align: center; }
-  .col-name  { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.65rem; }
-  .col-bar   { width: 180px; flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem; }
+  :global(.rank-row .col-rank)  { width: 36px; flex-shrink: 0; text-align: center; }
+  :global(.rank-row .col-name)  { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.65rem; }
+  :global(.rank-row .col-value) { width: 240px; flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem; }
 
-  .rank-num {
-    font-size: 0.82rem; font-weight: 700; color: var(--text-muted);
+  :global(.rank-num) {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-muted);
   }
 
-  /* Photo */
-  .row-photo {
-    width: 34px; height: 34px; border-radius: 50%;
-    object-fit: cover; flex-shrink: 0;
+  /* Person photo — circle */
+  :global(.row-photo) {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
     background: var(--bg-tertiary);
   }
-  .row-info { display: flex; flex-direction: column; min-width: 0; }
-  .row-fullname {
-    font-size: 0.88rem; font-weight: 600; color: var(--text-light);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .row-party {
-    font-size: 0.72rem; color: var(--text-muted);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+
+  /* Org logo — rounded square */
+  :global(.row-logo) {
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    object-fit: contain;
+    flex-shrink: 0;
+    background: var(--bg-tertiary);
+    padding: 3px;
   }
 
-  /* Bars */
-  .bar-track {
-    flex: 1; height: 7px; background: var(--bg-tertiary);
-    border-radius: 999px; overflow: hidden;
+  :global(.row-info) {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
   }
-  .bar-fill { height: 100%; border-radius: 999px; transition: width 0.3s ease; }
-  .bar-value { font-size: 0.75rem; font-weight: 700; flex-shrink: 0; width: 40px; text-align: right; }
+
+  :global(.row-fullname) {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-light);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  :global(.row-badge) {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  :global(.bar-track) {
+    flex: 1;
+    height: 7px;
+    background: var(--bg-tertiary);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  :global(.bar-fill) {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+  }
+
+  :global(.bar-meta) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex-shrink: 0;
+    min-width: 60px;
+    gap: 0.1rem;
+  }
+
+  :global(.bar-value) {
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-align: right;
+  }
+
+  :global(.bar-helper) {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-weight: 400;
+    line-height: 1.2;
+    text-align: right;
+  }
+
+  :global(.no-data) {
+    padding: 1.5rem 1rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
 
   @media (max-width: 768px) {
-    .col-bar { display: none; }
-    .rank-header .col-bar { display: none; }
-    .controls { flex-direction: column; }
-    .control-group input,
-    .control-group select { min-width: unset; width: 100%; }
+    .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
-  /* On small screens show only att bar */
-  @media (min-width: 480px) and (max-width: 768px) {
-    .col-bar:first-of-type { display: flex; width: 120px; }
+  @media (max-width: 640px) {
+    .col-value { width: 150px; }
+    :global(.rank-row .col-value) { width: 150px; }
+  }
+
+  @media (max-width: 480px) {
+    .filters { grid-template-columns: 1fr; }
+    .col-value { display: none; }
+    :global(.rank-row .col-value) { display: none; }
   }
 </style>

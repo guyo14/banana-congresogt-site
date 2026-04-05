@@ -11,30 +11,13 @@ export interface IdQuery {
 
 export interface NoParams extends Array<unknown> { }
 
-interface Congressman {
-  id: number,
-  firstName: string,
-  lastName: string,
-  dateOfBirth: string,
-  status: number,
-  blockId: number,
-  blockName: string,
-  districtId: number,
-  districtName: string,
-  partyId: number,
-  partyName: string,
-}
-
-interface SimpleCongressman {
-  id: number,
-  firstName: string,
-  lastName: string,
-}
-
-interface StandardCongressman {
-  congressmanId: number;
+interface MinifiedCongressman {
+  id: number;
   firstName: string;
   lastName: string;
+}
+
+interface Congressman extends MinifiedCongressman {
   partyId: number;
   partyName: string;
   districtId: number;
@@ -44,35 +27,26 @@ interface StandardCongressman {
   actionValue: number;
 }
 
+interface DetailedCongressman extends Congressman {
+  dateOfBirth: string;
+  status: number;
+}
+
 interface Group {
   id: number,
   name: string,
 }
 
-interface Block {
-  id: number;
-  name: string;
+interface Block extends Group {
   shortName: string;
 }
 
-interface District {
-  id: number;
-  name: string;
+interface District extends Group {
   key: string;
 }
 
-interface Party {
-  id: number;
-  name: string;
+interface Party extends Group {
   shortName: string;
-}
-
-interface Session {
-  id: number;
-  type: number;
-  sessionNumber: number;
-  startDate: string
-  period: string;
 }
 
 interface SessionSummary {
@@ -218,7 +192,7 @@ export function getLastSessionDate() {
 }
 
 export function getAllCongressmen() {
-  return db.prepare<NoParams, Congressman>(`
+  return db.prepare<NoParams, DetailedCongressman>(`
     SELECT 
       c.id,
       c.first_name AS firstName,
@@ -240,7 +214,7 @@ export function getAllCongressmen() {
 }
 
 export function getCongressman(id: number) {
-  return db.prepare<NoParams, Congressman>(`
+  return db.prepare<NoParams, DetailedCongressman>(`
     SELECT 
       c.id,
       c.first_name AS firstName,
@@ -331,7 +305,7 @@ export function getBlock(id: number) {
 }
 
 export function getBlockMembers(id: number) {
-  return db.prepare<NoParams, SimpleCongressman & Badge>(`
+  return db.prepare<NoParams, MinifiedCongressman & Badge>(`
     SELECT
       c.id,
       c.first_name AS firstName,
@@ -412,7 +386,7 @@ export function getDistrict(id: number) {
 }
 
 export function getDistrictMembers(id: number) {
-  return db.prepare<NoParams, SimpleCongressman & Badge>(`
+  return db.prepare<NoParams, MinifiedCongressman & Badge>(`
     SELECT
       c.id,
       c.first_name AS firstName,
@@ -484,7 +458,7 @@ export function getParty(id: number) {
 }
 
 export function getPartyMembers(id: number) {
-  return db.prepare<NoParams, SimpleCongressman & Badge>(`
+  return db.prepare<NoParams, MinifiedCongressman & Badge>(`
     SELECT
       c.id,
       c.first_name AS firstName,
@@ -589,7 +563,7 @@ export function getVotingBySession(id: number) {
     LEFT JOIN votes v ON v.voting_id = vot.id
     WHERE vot.session_id = ?
     GROUP BY vot.id, vot.subject
-    ORDER BY vot.id ASC
+    ORDER BY vot.id
   `).all(id);
 }
 
@@ -626,7 +600,7 @@ export function getVotesByCongressman(id: number) {
 }
 
 export function getCongressmenSessionAction(id: number) {
-  return db.prepare<number, StandardCongressman>(`
+  return db.prepare<number, Congressman>(`
     SELECT
       a.status AS actionValue,
       c.id AS congressmanId,
@@ -670,7 +644,7 @@ export const getVotingById = (id: number) =>
   `).get(id);
 
 export const getCongressmenVotingAction = (id: number) =>
-  db.prepare<number, StandardCongressman>(`
+  db.prepare<number, Congressman>(`
     SELECT 
       v.vote_type AS actionValue, 
       c.id AS congressmanId,
@@ -688,7 +662,7 @@ export const getCongressmenVotingAction = (id: number) =>
     LEFT JOIN districts d ON c.district_id = d.id
     LEFT JOIN blocks b ON c.block_id = b.id
     WHERE v.voting_id = ?
-    ORDER BY b.short_name ASC, p.name ASC, c.first_name ASC
+    ORDER BY b.short_name, p.name, c.first_name
   `).all(id);
 
 export const getVotingSummaries = () =>

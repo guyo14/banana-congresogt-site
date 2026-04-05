@@ -4,14 +4,12 @@ import {
   getSessionTypeString,
   SESSION_TYPE,
 } from "../../lib/mappers.ts";
-import {getAllSessionsSummary} from "../../lib/queries.ts";
+import {getAllSessionsSummary, getSessionPeriods} from "../../lib/queries.ts";
 import {getSessionPath} from "../../lib/paths.ts";
 
 const sessions = getAllSessionsSummary();
 
-const periods = [...new Set(sessions.map((s) => s.period))].sort(
-  (a, b) => Number(b) - Number(a),
-);
+const periods = [...getSessionPeriods()];
 
 const formatDate = (dateString: string): string => {
   const options: Intl.DateTimeFormatOptions = {
