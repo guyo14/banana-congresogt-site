@@ -180,6 +180,21 @@ main.container {
   margin-top: 1.5rem;
 }
 
+/* Section Card */
+.section-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.section-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1.25rem;
+  margin-top: 0;
+}
+
 /* Badges */
 .badge {
   display: inline-block;
@@ -190,6 +205,96 @@ main.container {
   background-color: var(--bg-tertiary);
   color: var(--text-main);
   border: 1px solid var(--border-color);
+}
+
+.badge-accent {
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent-color);
+  border-color: rgba(88, 166, 255, 0.3);
+}
+
+/* Chart Legend — shared across DoughnutChart, BarChart, LineChart */
+.custom-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.custom-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.custom-legend-item:hover {
+  border-color: var(--accent-color);
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.custom-legend-item.is-hidden {
+  opacity: 0.45;
+  background: transparent;
+}
+.custom-legend-item.is-hidden:hover {
+  opacity: 0.8;
+}
+.custom-legend-item:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+.legend-color-square {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+}
+.legend-info-wrap {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+.legend-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.legend-stats {
+  font-size: 0.9rem;
+  color: var(--text-light);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.val-count {
+  font-weight: 700;
+}
+.val-pct {
+  color: var(--text-muted);
+}
+.legend-eye-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+.custom-legend-item:hover .legend-eye-icon {
+  color: var(--accent-color);
 }
 
 /* Mobile Responsiveness Rules */

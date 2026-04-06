@@ -18,6 +18,10 @@ export function getDistrictPath(id: number) {
   return `/distritos/${id}`;
 }
 
+export function getDistrictImagePath(id: number) {
+  return `/distritos/${id}.svg`;
+}
+
 export function getBlockPath(id: number) {
   return `/bancadas/${id}`;
 }

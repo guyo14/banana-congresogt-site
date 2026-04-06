@@ -42,7 +42,7 @@ const fullName = `${firstName} ${lastName}`;
         <div class="tags">
             {status === CONGRESSMAN_STATUS.INACTIVE ?
               <span class="badge badge-inactive">Inactivo</span>:
-              blockName && <span class="badge badge-block">{blockName}</span>}
+              blockName && <span class="badge badge-accent">{blockName}</span>}
             <span class="badge badge-district">{districtName}</span>
         </div>
     </div>
@@ -102,12 +102,6 @@ const fullName = `${firstName} ${lastName}`;
         justify-content: center;
         flex-wrap: wrap;
         margin-bottom: 0.75rem;
-    }
-
-    .badge-block {
-        background: rgba(88, 166, 255, 0.15);
-        color: var(--accent-color);
-        border-color: rgba(88, 166, 255, 0.3);
     }
 
     .badge-inactive {

@@ -227,7 +227,7 @@ export function getCongressman(id: number) {
       d.id AS districtId,
       d.name AS districtName,
       p.id AS partyId,
-      p.name AS partyName
+      p.short_name AS partyName
     FROM congressmen c
     LEFT JOIN blocks b ON c.block_id = b.id 
     LEFT JOIN districts d ON c.district_id = d.id

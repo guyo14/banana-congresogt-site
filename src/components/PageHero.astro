@@ -1,0 +1,147 @@
+---
+interface Props {
+  typeLabel: string;
+  imageSrc?: string;
+  name: string;
+  shortName?: string;
+  memberCount: number;
+}
+
+const { typeLabel, imageSrc, name, shortName, memberCount } = Astro.props;
+
+// When shortName exists and differs from name, display shortName as the H1
+// and full name as a subtitle. Otherwise just use name.
+const displayTitle = shortName || name;
+const displaySubtitle = shortName && shortName !== name ? name : null;
+---
+
+<div class="page-hero">
+  {imageSrc && (
+    <div class="hero-image-wrap">
+      <img src={imageSrc} alt={name} class="hero-image" />
+    </div>
+  )}
+
+  <div class="hero-info">
+    <span class="hero-type-label">{typeLabel}</span>
+    <h1 class="hero-title">{displayTitle}</h1>
+    {displaySubtitle && <p class="hero-subtitle">{displaySubtitle}</p>}
+    <p class="hero-meta">
+      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+      {memberCount} {memberCount === 1 ? 'Representante' : 'Representantes'}
+    </p>
+  </div>
+</div>
+
+<style>
+  .page-hero {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    padding: 2rem;
+    margin-bottom: 2.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Left accent stripe */
+  .page-hero::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: linear-gradient(
+      to bottom,
+      var(--accent-color),
+      color-mix(in srgb, var(--accent-color) 20%, transparent)
+    );
+  }
+
+  .hero-image-wrap {
+    flex-shrink: 0;
+    width: 100px;
+    height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    padding: 6px;
+  }
+
+  .hero-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .hero-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+
+  .hero-type-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent-color);
+    margin-bottom: 0.15rem;
+  }
+
+  .hero-title {
+    font-size: 2.4rem;
+    font-weight: 800;
+    color: var(--text-light);
+    margin: 0;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .hero-subtitle {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    margin: 0.25rem 0 0;
+    line-height: 1.4;
+  }
+
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin: 0.6rem 0 0;
+  }
+
+  @media (max-width: 600px) {
+    .page-hero {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1.25rem;
+      padding: 1.5rem 1.25rem 1.5rem 1.5rem;
+    }
+
+    .hero-title {
+      font-size: 1.8rem;
+    }
+
+    .hero-image-wrap {
+      width: 80px;
+      height: 80px;
+    }
+  }
+</style>

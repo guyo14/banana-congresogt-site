@@ -4,6 +4,7 @@ import AttendanceCharts from "../../components/AttendanceCharts.astro";
 import VotesCharts from "../../components/VotesCharts.astro";
 import RiceIndexChart from "../../components/RiceIndexChart.astro";
 import MembersGrid from "../../components/MembersGrid.astro";
+import PageHero from "../../components/PageHero.astro";
 import {
   getAllDistrictsId,
   getDistrict,
@@ -11,6 +12,7 @@ import {
   getDistrictStatsByYear,
   getDistrictStatsTotal
 } from "../../lib/queries.ts";
+import { getDistrictImagePath } from "../../lib/paths.ts";
 
 export async function getStaticPaths() {
   return getAllDistrictsId().map((d) => ({
@@ -34,11 +36,12 @@ const yearlyStats = getDistrictStatsByYear(id);
 ---
 
 <Layout title={`Distrito ${district.name}`}>
-  <div class="page-header text-center">
-    <div class="badge badge-district margin-auto mb-1">Distrito</div>
-    <h1 class="district-name">{district.name}</h1>
-    <p class="text-muted">{members.length} Representante(s)</p>
-  </div>
+  <PageHero
+    typeLabel="Distrito"
+    imageSrc={getDistrictImagePath(id)}
+    name={district.name}
+    memberCount={members.length}
+  />
 
   <RiceIndexChart
     overallIndex={totalStats.riceIndex}
@@ -86,36 +89,6 @@ const yearlyStats = getDistrictStatsByYear(id);
 </Layout>
 
 <style>
-  .page-header {
-    padding: 3rem 0 2rem;
-    margin-bottom: 2rem;
-    border-bottom: 1px solid var(--border-color);
-  }
-  .district-name {
-    font-size: 3rem;
-    color: var(--text-light);
-  }
-  .margin-auto {
-    margin: 0 auto;
-  }
-  .mb-1 {
-    margin-bottom: 1rem;
-  }
-  .mb-3 {
-    margin-bottom: 3rem;
-  }
-  .badge-district {
-    background: rgba(139, 148, 158, 0.15);
-    border-color: rgba(139, 148, 158, 0.3);
-    color: var(--text-main);
-  }
-  .badge-party {
-    background: rgba(88, 166, 255, 0.15);
-    color: var(--accent-color);
-    border-color: rgba(88, 166, 255, 0.3);
-    font-size: 0.75rem;
-  }
-
   .stats-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -135,9 +108,5 @@ const yearlyStats = getDistrictStatsByYear(id);
     }
   }
 
-  @media (max-width: 768px) {
-    .district-name {
-      font-size: 2rem;
-    }
-  }
+
 </style>
