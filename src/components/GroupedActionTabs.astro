@@ -1,7 +1,7 @@
 ---
 import CongressmanActionCard from "./CongressmanActionCard.astro";
 import ExpandableGroup from "./ExpandableGroup.astro";
-import { getBlockImagePath, getPartyImagePath } from "../lib/paths.ts";
+import {getBlockImagePath, getDistrictImagePath, getPartyImagePath} from "../lib/paths.ts";
 
 export interface MemberAction {
   congressmanId: number;
@@ -86,7 +86,7 @@ function groupMembersByKey(
 const districtsGrouped = groupMembersByKey(
   members,
   (v) => `dist-${v.districtId}`,
-  (v) => ({ id: v.districtId, name: v.districtName, icon: "/distritos/map.svg" })
+  (v) => ({ id: v.districtId, name: v.districtName, icon: getDistrictImagePath(v.districtId) })
 );
 
 const blocksGrouped = groupMembersByKey(
