@@ -426,21 +426,6 @@ const heatmapYears = Object.keys(heatmapData).sort();
 
 <style>
   /* ---- Layout Grid ---- */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    align-items: start;
-    min-width: 0;
-  }
-  .stats-grid > * {
-    min-width: 0;
-  }
-  @media (max-width: 900px) {
-    .stats-grid {
-      grid-template-columns: 1fr;
-    }
-  }
 
   /* ---- Profile hero header (mobile-first, matches PageHero) ---- */
   .profile-hero {
@@ -726,8 +711,7 @@ const heatmapYears = Object.keys(heatmapData).sort();
     border-radius: 999px;
     border: 1px solid var(--border-color);
   }
-  .vote-search,
-  .filter-group select {
+  .vote-search {
     padding: 0.55rem 1rem;
     border-radius: 8px;
     border: 1px solid var(--border-color);
@@ -740,24 +724,8 @@ const heatmapYears = Object.keys(heatmapData).sort();
     width: 100%;
     transition: border-color var(--transition-fast);
   }
-  .vote-search:focus,
-  .filter-group select:focus {
+  .vote-search:focus {
     border-color: var(--accent-color);
-  }
-
-  .filters {
-    display: grid;
-    gap: 1rem;
-  }
-  .filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-  .filter-group label {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    font-weight: 600;
   }
 
   .vote-list-scroll {

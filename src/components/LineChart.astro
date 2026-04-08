@@ -54,15 +54,6 @@ const legendId = `lineLegend-${uniqueId}`;
     min-width: 0;
     overflow: hidden;
   }
-  .sub-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
   .line-layout {
     display: flex;
     flex-direction: row;
@@ -71,24 +62,10 @@ const legendId = `lineLegend-${uniqueId}`;
     gap: 1.5rem;
     align-items: center;
   }
-  .chart-box {
-    position: relative;
-    width: 100%;
-    min-width: 0;
-  }
   .line-chart-box {
     height: 260px;
     min-width: 0;
     overflow: hidden;
-  }
-  .legend-side {
-    flex: 1;
-    min-width: 240px;
-    width: 100%;
-    max-width: 450px;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
   }
 </style>
 <script src="../scripts/chart-processing.ts"></script>

@@ -1,10 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import AttendanceCharts from "../../components/AttendanceCharts.astro";
-import VotesCharts from "../../components/VotesCharts.astro";
-import RiceIndexChart from "../../components/RiceIndexChart.astro";
-import MembersGrid from "../../components/MembersGrid.astro";
-import PageHero from "../../components/PageHero.astro";
+import OrgDetailLayout from "../../components/OrgDetailLayout.astro";
 import {
   getAllPartiesId,
   getParty,
@@ -32,139 +28,17 @@ const totalStats = getPartyStatsTotal(id);
 
 if (!totalStats) throw new Error(`Party stats for ID ${id} not found`);
 
-const yearlyStats =getPartyStatsByYear(id);
+const yearlyStats = getPartyStatsByYear(id);
 ---
 
 <Layout title={`Partido ${party.shortName}`}>
-  <PageHero
+  <OrgDetailLayout
     typeLabel="Partido Político"
     imageSrc={getPartyImagePath(id)}
     name={party.name}
     shortName={party.shortName}
-    memberCount={members.length}
+    members={members}
+    totalStats={totalStats}
+    yearlyStats={yearlyStats}
   />
-
-  <RiceIndexChart
-    overallIndex={totalStats.riceIndex}
-    historyData={yearlyStats.map((stats) => ({
-      sessionName: stats.period,
-      index: stats.riceIndex,
-    }))}
-  />
-
-  <div class="stats-grid">
-    <div class="column-left">
-      <AttendanceCharts
-        total={{
-          present: totalStats.attendancePresent,
-          absent: totalStats.attendanceAbsent,
-          license: totalStats.attendanceLicense,
-        }}
-        byYear={yearlyStats.map((stats) => ({
-          period: stats.period,
-          present: stats.attendancePresent,
-          absent: stats.attendanceAbsent,
-          license: stats.attendanceLicense,
-        }))}
-      />
-    </div>
-
-    <div class="column-right">
-      <VotesCharts
-        total={{
-          inFavor: totalStats.votesInFavor,
-          against: totalStats.votesAgainst,
-          absent: totalStats.votesAbsent,
-        }}
-        byYear={yearlyStats.map((stats) => ({
-          period: stats.period,
-          inFavor: stats.votesInFavor,
-          against: stats.votesAgainst,
-          absent: stats.votesAbsent,
-        }))}
-      />
-    </div>
-  </div>
-
-  <MembersGrid members={members} />
-
 </Layout>
-
-<style>
-  .stats-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    align-items: start;
-    min-width: 0;
-    margin-top: 2rem;
-    margin-bottom: 3rem;
-  }
-  .stats-grid > * {
-    min-width: 0;
-  }
-  
-  .sort-note {
-    font-size: 0.75rem;
-    font-weight: 400;
-    color: var(--text-muted);
-    margin-left: 0.75rem;
-  }
-
-  .votation-list {
-    display: flex; flex-direction: column; gap: 0.75rem;
-  }
-  .votation-row-item {
-    display: grid;
-    grid-template-columns: auto 1fr auto auto;
-    align-items: center;
-    gap: 1rem 1.25rem;
-    padding: 1rem;
-    color: inherit;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    transition: border-color var(--transition-fast), transform var(--transition-fast);
-  }
-  .votation-row-item:hover {
-    border-color: var(--accent-color); transform: translateX(4px);
-  }
-
-  .votation-row-meta { display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; flex-shrink: 0; }
-  .vot-date { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
-
-  .votation-row-subject {
-    font-size: 0.9rem; color: var(--text-light); line-height: 1.35;
-    overflow: hidden; display: -webkit-box;
-    -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  }
-
-  .votation-row-bars { flex-shrink: 0; width: 80px; }
-  .vot-mini-bar {
-    height: 8px; border-radius: 4px; overflow: hidden;
-    display: flex; background: var(--bg-tertiary);
-  }
-  .vot-mini-bar > div { height: 100%; }
-
-  .votation-row-badges { display: flex; flex-direction: column; gap: 0.3rem; align-items: flex-end; flex-shrink: 0; }
-
-  .stance-badge, .outcome-badge {
-    font-size: 0.68rem; font-weight: 700;
-    padding: 0.2em 0.6em; border-radius: 999px;
-    border: 1px solid; white-space: nowrap;
-  }
-
-  @media (max-width: 900px) {
-    .stats-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .votation-row-item {
-      grid-template-columns: 1fr;
-      gap: 0.5rem;
-    }
-    .votation-row-badges { flex-direction: row; align-items: center; }
-  }
-</style>

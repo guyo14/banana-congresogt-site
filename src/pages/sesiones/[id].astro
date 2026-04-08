@@ -2,6 +2,7 @@
 import Layout from "../../layouts/Layout.astro";
 import DoughnutChart from "../../components/DoughnutChart.astro";
 import LineChart from "../../components/LineChart.astro";
+import VotationCard from "../../components/VotationCard.astro";
 import GroupedActionTabs from "../../components/GroupedActionTabs.astro";
 import {
   getSessionTypeString,
@@ -132,53 +133,17 @@ const ATTENDANCE_FILTERS = [
     {
       voting.length > 0 ? (
         <div class="votation-list" id="votationList">
-          {voting.map((v, index) => {
-            const vTotal = v.totalInFavor + v.totalAgainst + v.totalAbsent;
-            const pctFavor =
-              vTotal > 0 ? ((v.totalInFavor / vTotal) * 100).toFixed(1) : "0";
-            const pctContra =
-              vTotal > 0 ? ((v.totalAgainst / vTotal) * 100).toFixed(1) : "0";
-            const pctAbsent =
-              vTotal > 0 ? ((v.totalAbsent / vTotal) * 100).toFixed(1) : "0";
-
-            return (
-              <a
-                href={getVotingPath(v.id)}
-                class="votation-card glass-panel"
-                data-subject={v.subject.toLowerCase()}
-              >
-                <div class="votation-number">#{index + 1}</div>
-                <div class="votation-info">
-                  <h3>{v.subject}</h3>
-                </div>
-                <div class="vote-summary">
-                  <div class="vs-row">
-                    <span class="vs-dot" style="background:#00b2e3"></span>
-                    <span class="vs-label">A Favor</span>
-                    <strong class="vs-value">{v.totalInFavor}</strong>
-                    <span class="vs-pct">{pctFavor}%</span>
-                  </div>
-                  <div class="vs-row">
-                    <span class="vs-dot" style="background:#00da9f"></span>
-                    <span class="vs-label">En Contra</span>
-                    <strong class="vs-value">{v.totalAgainst}</strong>
-                    <span class="vs-pct">{pctContra}%</span>
-                  </div>
-                  <div class="vs-row">
-                    <span class="vs-dot" style="background:#ffd700"></span>
-                    <span class="vs-label">Ausente</span>
-                    <strong class="vs-value">{v.totalAbsent}</strong>
-                    <span class="vs-pct">{pctAbsent}%</span>
-                  </div>
-                  <div class="vs-bar">
-                    <div class="vs-seg" style={`width:${pctFavor}%; background:#00b2e3`}></div>
-                    <div class="vs-seg" style={`width:${pctContra}%; background:#00da9f`}></div>
-                    <div class="vs-seg" style={`width:${pctAbsent}%; background:#ffd700`}></div>
-                  </div>
-                </div>
-              </a>
-            );
-          })}
+          {voting.map((v, index) => (
+            <VotationCard
+              href={getVotingPath(v.id)}
+              number={index + 1}
+              subject={v.subject}
+              votesInFavor={v.totalInFavor}
+              votesAgainst={v.totalAgainst}
+              votesAbsent={v.totalAbsent}
+              dataSubject={v.subject.toLowerCase()}
+            />
+          ))}
         </div>
       ) : (
         <p class="text-muted" style="padding: 1rem 0;">
@@ -225,29 +190,7 @@ const ATTENDANCE_FILTERS = [
 </script>
 
 <style>
-  .page-header {
-    margin-bottom: 2rem;
-  }
-  .header-meta {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 0.5rem;
-  }
-  .badge {
-    background: var(--bg-tertiary);
-    padding: 0.2em 0.65em;
-    border-radius: 6px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text-muted);
-  }
-
-  /* Two-column grid for attendance + voting trend */
   .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 2rem;
     margin-bottom: 2rem;
   }
 
@@ -257,22 +200,12 @@ const ATTENDANCE_FILTERS = [
     padding: 1.5rem;
     border-radius: 12px;
   }
+
   .section-title {
-    font-size: 1.4rem;
-    font-weight: 700;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 1.25rem;
-    margin-top: 0;
     display: flex;
     align-items: baseline;
     gap: 0.75rem;
     flex-wrap: wrap;
-  }
-  .sort-note {
-    font-size: 0.78rem;
-    font-weight: 400;
-    color: var(--text-muted);
   }
 
   /* Trend section — ensure chart doesn't overflow */
@@ -286,139 +219,5 @@ const ATTENDANCE_FILTERS = [
   }
   .trend-section :global(.line-chart-box) {
     min-width: 0;
-  }
-
-  /* Inline filter for votations */
-  .filter-inline {
-    margin-bottom: 1.25rem;
-  }
-  .filter-inline input {
-    width: 100%;
-    padding: 0.75rem;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-secondary);
-    color: var(--text-main);
-    font-size: 1rem;
-    font-family: inherit;
-    outline: none;
-    transition: border-color var(--transition-fast);
-  }
-  .filter-inline input:focus {
-    border-color: var(--accent-color);
-  }
-
-  /* Votation list */
-  .votation-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-  .votation-card {
-    display: flex;
-    align-items: center;
-    gap: 1.25rem;
-    padding: 1.1rem 1.5rem;
-    color: inherit;
-    transition:
-      border-color var(--transition-fast),
-      transform var(--transition-fast);
-  }
-  .votation-number {
-    font-size: 0.95rem;
-    font-weight: 800;
-    color: var(--bg-tertiary);
-    background: var(--text-muted);
-    min-width: 46px;
-    height: 46px;
-    padding: 0 0.4rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    flex-shrink: 0;
-  }
-  .votation-info {
-    flex: 1;
-    min-width: 0;
-  }
-  .votation-info h3 {
-    margin: 0;
-    font-size: 1rem;
-    line-height: 1.35;
-    color: var(--text-light);
-  }
-  .votation-card:hover {
-    border-color: var(--accent-color);
-    transform: translateX(5px);
-  }
-  .votation-card:hover .votation-number {
-    background: var(--accent-color);
-    color: var(--bg-color);
-  }
-
-  /* Vote summary — right side of votation card */
-  .vote-summary {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    min-width: 170px;
-    flex-shrink: 0;
-  }
-  .vs-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.78rem;
-  }
-  .vs-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .vs-label {
-    color: var(--text-muted);
-    min-width: 55px;
-  }
-  .vs-value {
-    color: var(--text-light);
-    min-width: 24px;
-    text-align: right;
-  }
-  .vs-pct {
-    color: var(--text-muted);
-    min-width: 38px;
-    text-align: right;
-  }
-  .vs-bar {
-    display: flex;
-    height: 5px;
-    border-radius: 3px;
-    overflow: hidden;
-    background: var(--bg-tertiary);
-    margin-top: 0.2rem;
-  }
-  .vs-seg {
-    height: 100%;
-  }
-
-
-  @media (max-width: 900px) {
-    .stats-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .votation-card {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0.75rem;
-    }
-    .vote-summary {
-      min-width: unset;
-      width: 100%;
-    }
   }
 </style>

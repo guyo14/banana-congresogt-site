@@ -1,10 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import AttendanceCharts from "../../components/AttendanceCharts.astro";
-import VotesCharts from "../../components/VotesCharts.astro";
-import RiceIndexChart from "../../components/RiceIndexChart.astro";
-import MembersGrid from "../../components/MembersGrid.astro";
-import PageHero from "../../components/PageHero.astro";
+import OrgDetailLayout from "../../components/OrgDetailLayout.astro";
 import {getAllBlocksId, getBlock, getBlockMembers, getBlockStatsByYear, getBlockStatsTotal} from "../../lib/queries.ts";
 import { getBlockImagePath } from "../../lib/paths.ts";
 
@@ -30,78 +26,13 @@ const yearlyStats = getBlockStatsByYear(id);
 ---
 
 <Layout title={`Bancada ${block.shortName}`}>
-  <PageHero
+  <OrgDetailLayout
     typeLabel="Bancada"
     imageSrc={getBlockImagePath(id)}
     name={block.name}
     shortName={block.shortName}
-    memberCount={members.length}
+    members={members}
+    totalStats={totalStats}
+    yearlyStats={yearlyStats}
   />
-
-  <RiceIndexChart
-    overallIndex={totalStats.riceIndex}
-    historyData={yearlyStats.map((stats) => ({
-      sessionName: stats.period,
-      index: stats.riceIndex,
-    }))}
-  />
-
-  <div class="stats-grid">
-    <div class="column-left">
-      <AttendanceCharts
-        total={{
-          present: totalStats.attendancePresent,
-          absent: totalStats.attendanceAbsent,
-          license: totalStats.attendanceLicense,
-        }}
-        byYear={yearlyStats.map((stats) => ({
-          period: stats.period,
-          present: stats.attendancePresent,
-          absent: stats.attendanceAbsent,
-          license: stats.attendanceLicense,
-        }))}
-      />
-    </div>
-
-    <div class="column-right">
-      <VotesCharts
-        total={{
-          inFavor: totalStats.votesInFavor,
-          against: totalStats.votesAgainst,
-          absent: totalStats.votesAbsent,
-        }}
-        byYear={yearlyStats.map((stats) => ({
-          period: stats.period,
-          inFavor: stats.votesInFavor,
-          against: stats.votesAgainst,
-          absent: stats.votesAbsent,
-        }))}
-      />
-    </div>
-  </div>
-
-  <MembersGrid members={members} />
 </Layout>
-
-<style>
-  .stats-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    align-items: start;
-    min-width: 0;
-    margin-top: 2rem;
-    margin-bottom: 3rem;
-  }
-  .stats-grid > * {
-    min-width: 0;
-  }
-
-  @media (max-width: 900px) {
-    .stats-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-
-</style>

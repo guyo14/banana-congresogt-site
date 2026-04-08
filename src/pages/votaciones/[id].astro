@@ -52,10 +52,8 @@ const VOTE_FILTERS = [
 <Layout title={`Votación #${globalNumber}: ${voting.subject.substring(0, 30)}...`}>
   <div class="page-header">
     <div class="header-meta">
+      <span class="badge">#{globalNumber}</span>
       <span class="badge">
-        #{globalNumber}
-      </span>
-      <span class="badge" style="background: var(--bg-tertiary)">
         {voting.period} Sesión {getSessionTypeString(voting.sessionType)} No. {voting.sessionNumber}
       </span>
       <span class="text-muted">{formatDate(voting.startDate)}</span>
@@ -109,60 +107,22 @@ const VOTE_FILTERS = [
 </Layout>
 
 <style>
-  .page-header {
-    margin-bottom: 2rem;
-  }
   .header-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
     margin-bottom: 0.75rem;
-    flex-wrap: wrap;
-  }
-  .badge {
-    background: var(--text-main);
-    color: var(--bg-color);
-    padding: 0.25em 0.75em;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-weight: 700;
   }
 
-  /* Stats grid mirrors sesiones layout */
   .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 2rem;
     margin-bottom: 2.5rem;
   }
 
   .section-title {
-    font-size: 1.4rem;
-    font-weight: 700;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 1.25rem;
-    margin-top: 0;
-    color: var(--text-light);
     display: flex;
     align-items: baseline;
     gap: 0.75rem;
     flex-wrap: wrap;
   }
 
-  .sort-note {
-    font-size: 0.78rem;
-    font-weight: 400;
-    color: var(--text-muted);
-  }
-
   .section-card {
     padding: 1.5rem;
-  }
-
-  @media (max-width: 900px) {
-    .stats-grid {
-      grid-template-columns: 1fr;
-    }
   }
 </style>

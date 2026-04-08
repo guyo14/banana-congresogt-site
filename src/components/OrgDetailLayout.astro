@@ -1,0 +1,106 @@
+---
+import AttendanceCharts from "./AttendanceCharts.astro";
+import VotesCharts from "./VotesCharts.astro";
+import RiceIndexChart from "./RiceIndexChart.astro";
+import MembersGrid from "./MembersGrid.astro";
+import PageHero from "./PageHero.astro";
+
+interface YearlyStats {
+  period: string;
+  attendancePresent: number;
+  attendanceAbsent: number;
+  attendanceLicense: number;
+  votesInFavor: number;
+  votesAgainst: number;
+  votesAbsent: number;
+  riceIndex: number;
+}
+
+interface TotalStats {
+  attendancePresent: number;
+  attendanceAbsent: number;
+  attendanceLicense: number;
+  votesInFavor: number;
+  votesAgainst: number;
+  votesAbsent: number;
+  riceIndex: number;
+}
+
+interface Member {
+  id: number;
+  firstName: string;
+  lastName: string;
+  badge: string;
+}
+
+interface Props {
+  typeLabel: string;
+  imageSrc?: string;
+  name: string;
+  shortName?: string;
+  members: Member[];
+  totalStats: TotalStats;
+  yearlyStats: YearlyStats[];
+}
+
+const { typeLabel, imageSrc, name, shortName, members, totalStats, yearlyStats } = Astro.props;
+---
+
+<PageHero
+  typeLabel={typeLabel}
+  imageSrc={imageSrc}
+  name={name}
+  shortName={shortName}
+  memberCount={members.length}
+/>
+
+<RiceIndexChart
+  overallIndex={totalStats.riceIndex}
+  historyData={yearlyStats.map((stats) => ({
+    sessionName: stats.period,
+    index: stats.riceIndex,
+  }))}
+/>
+
+<div class="stats-grid org-stats-grid">
+  <div class="column-left">
+    <AttendanceCharts
+      total={{
+        present: totalStats.attendancePresent,
+        absent: totalStats.attendanceAbsent,
+        license: totalStats.attendanceLicense,
+      }}
+      byYear={yearlyStats.map((stats) => ({
+        period: stats.period,
+        present: stats.attendancePresent,
+        absent: stats.attendanceAbsent,
+        license: stats.attendanceLicense,
+      }))}
+    />
+  </div>
+
+  <div class="column-right">
+    <VotesCharts
+      total={{
+        inFavor: totalStats.votesInFavor,
+        against: totalStats.votesAgainst,
+        absent: totalStats.votesAbsent,
+      }}
+      byYear={yearlyStats.map((stats) => ({
+        period: stats.period,
+        inFavor: stats.votesInFavor,
+        against: stats.votesAgainst,
+        absent: stats.votesAbsent,
+      }))}
+    />
+  </div>
+</div>
+
+<MembersGrid members={members} />
+
+<style>
+  .org-stats-grid {
+    margin-top: 2rem;
+    margin-bottom: 3rem;
+  }
+</style>

@@ -1,0 +1,59 @@
+---
+interface Props {
+  href: string;
+  number: number;
+  subject: string;
+  votesInFavor: number;
+  votesAgainst: number;
+  votesAbsent: number;
+  dataSubject?: string;
+  dataPeriod?: string;
+  dataMajority?: string;
+}
+
+const { href, number, subject, votesInFavor, votesAgainst, votesAbsent, dataSubject, dataPeriod, dataMajority } = Astro.props;
+
+const vTotal = votesInFavor + votesAgainst + votesAbsent;
+const pctFavor = vTotal > 0 ? ((votesInFavor / vTotal) * 100).toFixed(1) : "0";
+const pctContra = vTotal > 0 ? ((votesAgainst / vTotal) * 100).toFixed(1) : "0";
+const pctAbsent = vTotal > 0 ? ((votesAbsent / vTotal) * 100).toFixed(1) : "0";
+---
+
+<a
+  href={href}
+  class="votation-card glass-panel"
+  data-subject={dataSubject}
+  data-period={dataPeriod}
+  data-majority={dataMajority}
+>
+  <div class="votation-number">#{number}</div>
+  <div class="votation-info">
+    <h3>{subject}</h3>
+    <slot />
+  </div>
+  <div class="vote-summary">
+    <div class="vs-row">
+      <span class="vs-dot" style="background:#00b2e3"></span>
+      <span class="vs-label">A Favor</span>
+      <strong class="vs-value">{votesInFavor}</strong>
+      <span class="vs-pct">{pctFavor}%</span>
+    </div>
+    <div class="vs-row">
+      <span class="vs-dot" style="background:#00da9f"></span>
+      <span class="vs-label">En Contra</span>
+      <strong class="vs-value">{votesAgainst}</strong>
+      <span class="vs-pct">{pctContra}%</span>
+    </div>
+    <div class="vs-row">
+      <span class="vs-dot" style="background:#ffd700"></span>
+      <span class="vs-label">Ausente</span>
+      <strong class="vs-value">{votesAbsent}</strong>
+      <span class="vs-pct">{pctAbsent}%</span>
+    </div>
+    <div class="vs-bar">
+      <div class="vs-seg" style={`width:${pctFavor}%; background:#00b2e3`}></div>
+      <div class="vs-seg" style={`width:${pctContra}%; background:#00da9f`}></div>
+      <div class="vs-seg" style={`width:${pctAbsent}%; background:#ffd700`}></div>
+    </div>
+  </div>
+</a>

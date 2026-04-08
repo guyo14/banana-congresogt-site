@@ -1,0 +1,29 @@
+/* Shared styles for chart components (DoughnutChart, BarChart, LineChart) */
+
+.banana-chart-container .sub-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.banana-chart-container .chart-box {
+  position: relative;
+  height: 250px;
+  width: 100%;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.banana-chart-container .legend-side {
+  flex: 1;
+  min-width: 240px;
+  width: 100%;
+  max-width: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}

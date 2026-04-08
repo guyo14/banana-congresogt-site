@@ -253,3 +253,238 @@ main.container {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Filters ─────────────────────────────────────── */
+.filters {
+  display: grid;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-group label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.filter-group input,
+.filter-group select {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.filter-group input:focus,
+.filter-group select:focus {
+  border-color: var(--accent-color);
+}
+
+/* Inline filter (single search input) */
+.filter-inline {
+  margin-bottom: 1.25rem;
+}
+
+.filter-inline input {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.filter-inline input:focus {
+  border-color: var(--accent-color);
+}
+
+/* ── Two-column stats grid ───────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.stats-grid > * {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Results count ───────────────────────────────── */
+.results-count {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 1.25rem;
+  padding-left: 0.25rem;
+}
+
+/* ── Header meta (badges row above h1) ───────────── */
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ── Sort / count note beside section titles ─────── */
+.sort-note {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* ── Section title (flex variant for inline notes) ── */
+.section-title-flex {
+  font-size: 1.4rem;
+  font-weight: 700;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1.25rem;
+  margin-top: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ── Votation card pattern ───────────────────────── */
+.votation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.votation-card {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.1rem 1.5rem;
+  color: inherit;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.votation-card:hover {
+  border-color: var(--accent-color);
+  transform: translateX(5px);
+}
+
+.votation-card:hover .votation-number {
+  background: var(--accent-color);
+  color: var(--bg-color);
+}
+
+.votation-number {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--bg-tertiary);
+  background: var(--text-muted);
+  min-width: 46px;
+  height: 46px;
+  padding: 0 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.votation-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.votation-info h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.35;
+  color: var(--text-light);
+}
+
+/* ── Vote summary sidebar ────────────────────────── */
+.vote-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 170px;
+  flex-shrink: 0;
+}
+
+.vs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.vs-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.vs-label {
+  color: var(--text-muted);
+  min-width: 65px;
+}
+
+.vs-value {
+  color: var(--text-light);
+  min-width: 24px;
+  text-align: right;
+}
+
+.vs-pct {
+  color: var(--text-muted);
+  min-width: 38px;
+  text-align: right;
+}
+
+.vs-bar {
+  display: flex;
+  height: 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  margin-top: 0.2rem;
+}
+
+.vs-seg {
+  height: 100%;
+}
+
+@media (max-width: 640px) {
+  .votation-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .vote-summary {
+    min-width: unset;
+    width: 100%;
+  }
+}
