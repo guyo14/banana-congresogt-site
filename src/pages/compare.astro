@@ -1,177 +1,394 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import db from '../lib/db.js';
+import { VOTE_TYPE } from '../lib/mappers.ts';
 
-// Build: embed a compact dataset for all diputados (subqueries avoid Cartesian product)
-const dataset = db.prepare(`
+// Congressman profiles + total stats for the comparison table
+const congressmenData = db.prepare(`
   SELECT
     c.id,
-    c.first_name,
-    c.last_name,
-    p.name  AS party_name,
-    d.name  AS district_name,
-    -- Attendance Percentage
-    CASE WHEN (cs.attendance_present + cs.attendance_absent + cs.attendance_license) > 0 
-         THEN ROUND(100.0 * cs.attendance_present / (cs.attendance_present + cs.attendance_absent + cs.attendance_license), 1)
-         ELSE 0 END AS att_pct,
-         
-    CASE WHEN (cs.attendance_present + cs.attendance_absent + cs.attendance_license) > 0 
-         THEN ROUND(100.0 * cs.attendance_license / (cs.attendance_present + cs.attendance_absent + cs.attendance_license), 1)
-         ELSE 0 END AS exc_pct,
-         
-    -- Voting Percentage
-    CASE WHEN (cs.votes_in_favor + cs.votes_against + cs.votes_absent) > 0 
-         THEN ROUND(100.0 * cs.votes_in_favor / (cs.votes_in_favor + cs.votes_against + cs.votes_absent), 1)
-         ELSE 0 END AS favor_pct,
-         
-    CASE WHEN (cs.votes_in_favor + cs.votes_against + cs.votes_absent) > 0 
-         THEN ROUND(100.0 * cs.votes_against / (cs.votes_in_favor + cs.votes_against + cs.votes_absent), 1)
-         ELSE 0 END AS contra_pct,
-         
-    COALESCE(cs.attendance_present + cs.attendance_license, 0) AS sessions_attended,
-    COALESCE(cs.votes_in_favor + cs.votes_against, 0) AS total_votes
+    c.first_name AS firstName,
+    c.last_name AS lastName,
+    c.birth_date AS birthDate,
+    p.short_name AS partyName,
+    d.name AS districtName,
+    COALESCE(b.short_name, 'Independiente') AS blockName,
+    COALESCE(cs.attendance_present, 0) AS attendancePresent,
+    COALESCE(cs.attendance_absent, 0)  AS attendanceAbsent,
+    COALESCE(cs.attendance_license, 0) AS attendanceLicense,
+    COALESCE(cs.votes_in_favor, 0)     AS votesInFavor,
+    COALESCE(cs.votes_against, 0)      AS votesAgainst,
+    COALESCE(cs.votes_absent, 0)       AS votesAbsent,
+    COALESCE(cs.votes_with_majority, 0) AS votesWithMajority,
+    COALESCE(cs.votes_against_majority, 0) AS votesAgainstMajority
   FROM congressmen c
   LEFT JOIN parties   p ON p.id = c.party_id
   LEFT JOIN districts d ON d.id = c.district_id
+  LEFT JOIN blocks    b ON b.id = c.block_id
   LEFT JOIN congressman_stats cs ON cs.id = c.id AND cs.period = 'total'
+  WHERE c.status = 0
   ORDER BY c.first_name, c.last_name
 `).all();
 
-const jsonData = JSON.stringify(dataset);
+// Similarity pairs (only between active congressmen, already in the table)
+const similarityData = db.prepare(`
+  SELECT
+    congressman_id AS id1,
+    congressman_2_id AS id2,
+    similarity_score AS similarityScore,
+    common_votes AS commonVotes,
+    same_votes AS sameVotes,
+    agreement_percentage AS agreementPercentage
+  FROM congressman_similarity
+`).all();
+
+// Build a lookup map id1->id2->{...} as a flat array of [id1,id2,score,common,same,agreement]
+const simLookup: Record<string, { similarityScore: number; commonVotes: number; sameVotes: number; agreementPercentage: number }> = {};
+for (const s of similarityData as any[]) {
+  simLookup[`${s.id1}_${s.id2}`] = s;
+}
+
+// Paired votes: for each voting, each congressman's vote type
+// We'll build a map: votingId -> { subject, votes: { [congressmanId]: voteType } }
+const allVotes = db.prepare(`
+  SELECT
+    vot.id AS votingId,
+    vot.subject,
+    v.congressman_id AS congressmanId,
+    v.vote_type AS voteType
+  FROM votes v
+  JOIN voting vot ON v.voting_id = vot.id
+  JOIN sessions s ON vot.session_id = s.id
+  ORDER BY s.start_date DESC, vot.id DESC
+`).all() as { votingId: number; subject: string; congressmanId: number; voteType: number }[];
+
+// Group into a structure: { votingId, subject, votes: { congressmanId: voteType } }
+const votingMap = new Map<number, { votingId: number; subject: string; votes: Record<number, number> }>();
+for (const v of allVotes) {
+  if (!votingMap.has(v.votingId)) {
+    votingMap.set(v.votingId, { votingId: v.votingId, subject: v.subject, votes: {} });
+  }
+  votingMap.get(v.votingId)!.votes[v.congressmanId] = v.voteType;
+}
+const votingList = Array.from(votingMap.values());
+
+const jsonCongressmen = JSON.stringify(congressmenData);
+const jsonSimilarity = JSON.stringify(simLookup);
+const jsonVotingList = JSON.stringify(votingList);
 ---
 
 <Layout title="Comparar Diputados">
   <div class="page-header">
     <h1>Comparar Diputados</h1>
-    <p class="text-muted">Selecciona hasta 3 diputados para comparar su desempeño lado a lado.</p>
+    <p class="text-muted">Selecciona dos diputados para comparar su desempeño.</p>
   </div>
 
   <!-- Slot selectors -->
-  <div class="slot-bar" id="slotBar">
-    {[0, 1, 2].map(i => (
-      <div class="slot" id={`slot-${i}`} data-slot={i}>
-        <div class="slot-search-wrap">
+  <div class="selector-bar">
+    {[0, 1].map(i => (
+      <div class="selector-slot glass-panel" id={`slot-${i}`}>
+        <div class="selector-preview hidden" id={`preview-${i}`}>
+          <img class="selector-preview-photo" id={`preview-photo-${i}`} alt="" />
+        </div>
+        <div class="selector-search-wrap">
           <input
             type="text"
-            class="slot-input"
-            placeholder={i === 0 ? 'Buscar diputado...' : 'Agregar otro...'}
+            class="selector-input"
+            placeholder={i === 0 ? 'Buscar primer diputado...' : 'Buscar segundo diputado...'}
             autocomplete="off"
-            id={`slot-input-${i}`}
+            id={`input-${i}`}
           />
-          <div class="slot-dropdown" id={`slot-dropdown-${i}`}></div>
+          <div class="selector-dropdown" id={`dropdown-${i}`}></div>
         </div>
-        <button class="slot-clear hidden" id={`slot-clear-${i}`} title="Quitar" aria-label="Quitar diputado">✕</button>
+        <button class="selector-clear hidden" id={`clear-${i}`} aria-label="Quitar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
     ))}
   </div>
 
-  <!-- Hint shown before any selection -->
-  <div id="emptyHint" class="empty-hint glass-panel">
-    <span class="hint-icon">⚖️</span>
-    <div>
-      <strong>Compara a tus representantes</strong>
-      <p class="text-muted">Busca un diputado en los campos de arriba para comenzar. Puedes agregar hasta 3.</p>
+  <!-- Empty state -->
+  <div id="emptyState" class="empty-state glass-panel">
+    <div class="empty-state-content">
+      <strong>Selecciona dos diputados para comparar</strong>
+      <p class="text-muted">Busca en los campos de arriba para comenzar la comparativa.</p>
     </div>
   </div>
 
-  <!-- Comparison cards -->
-  <div class="compare-grid" id="compareGrid"></div>
+  <!-- Comparison content (hidden until both selected) -->
+  <div id="compareContent" class="compare-content hidden">
+    <!-- Shared similarity banner -->
+    <div id="similarityBanner" class="similarity-banner glass-panel"></div>
+
+    <!-- Profile comparison -->
+    <div id="profileComparison" class="profile-comparison"></div>
+
+    <!-- Metrics table -->
+    <section class="section-card glass-panel">
+      <h2 class="section-title" style="margin-top:0">Comparativa de Desempe&ntilde;o</h2>
+      <div id="metricsTable" class="metrics-table"></div>
+    </section>
+
+    <!-- Paired voting -->
+    <section class="section-card glass-panel" style="margin-top:2rem">
+      <h2 class="section-title" style="margin-top:0">
+        Historial de Votaciones <span class="vote-count-badge" id="votingCount">0</span>
+      </h2>
+      <div class="voting-filters">
+        <div class="filter-group">
+          <label for="searchVoting">Buscar por tema</label>
+          <input type="text" id="searchVoting" class="filter-input" placeholder="Ej. Presupuesto..." />
+        </div>
+        <div class="filter-group">
+          <label for="filterBehavior">Comportamiento</label>
+          <select id="filterBehavior" class="filter-input">
+            <option value="">---Todos---</option>
+            <option value="same">Votaron igual</option>
+            <option value="different">Votaron diferente</option>
+            <option value="one_absent">Uno ausente</option>
+            <option value="both_absent">Ambos ausentes</option>
+          </select>
+        </div>
+      </div>
+      <div class="voting-list" id="votingList"></div>
+    </section>
+  </div>
 </Layout>
 
-<!-- Embed dataset at build time -->
-<script define:vars={{ jsonData }}>
-  const DATA = JSON.parse(jsonData);
-  const MAX_SLOTS = 3;
-  const selected  = [null, null, null]; // selected congressman per slot
+<script define:vars={{ jsonCongressmen, jsonSimilarity, jsonVotingList }}>
+  const DATA = JSON.parse(jsonCongressmen);
+  const SIM  = JSON.parse(jsonSimilarity);
+  const VOTING = JSON.parse(jsonVotingList);
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
+  const VOTE = { IN_FAVOR: 0, AGAINST: 1, ABSENT: 2 };
+  const voteLabel = t => t === VOTE.IN_FAVOR ? 'A Favor' : t === VOTE.AGAINST ? 'En Contra' : 'Ausente';
+  const voteColor = t => t === VOTE.IN_FAVOR ? '#00b2e3' : t === VOTE.AGAINST ? '#00da9f' : '#ffd700';
 
-  const attColor   = pct => pct >= 80 ? 'var(--color-favor)' : pct >= 50 ? '#f0a500' : 'var(--color-contra)';
-  const favorColor = pct => pct >= 60 ? 'var(--color-favor)' : pct >= 40 ? '#f0a500' : 'var(--color-contra)';
+  const selected = [null, null];
 
-  function renderCard(c) {
-    const absPct = Math.max(0, 100 - c.att_pct - c.exc_pct);
-    return `
-      <div class="cmp-card glass-panel">
-        <a href="/congressman/${c.id}" class="cmp-link" title="Ver perfil completo">
-          <img
-            src="/congressmen/face/${c.id}.jpg"
-            alt="${c.first_name}"
-            class="cmp-photo"
-            onerror="this.src='/placeholder.svg'; this.onerror=null;"
-          />
-          <div class="cmp-identity">
-            <span class="cmp-name">${c.first_name} ${c.last_name}</span>
-            <span class="cmp-party">${c.party_name ?? '—'}</span>
-            <span class="cmp-district">${c.district_name ?? '—'}</span>
-          </div>
-        </a>
-
-        <div class="cmp-section">
-          <span class="cmp-label">Asistencia</span>
-          <div class="cmp-bar-row">
-            <div class="cmp-bar-track">
-              <div class="cmp-bar-fill" style="width:${c.att_pct}%;background:${attColor(c.att_pct)}"></div>
-            </div>
-            <span class="cmp-pct" style="color:${attColor(c.att_pct)}">${c.att_pct}%</span>
-          </div>
-        </div>
-
-        <div class="cmp-section">
-          <span class="cmp-label">Distribución de votos</span>
-          <div class="cmp-triple-bar">
-            <div class="cmp-seg favor"  style="width:${c.favor_pct}%"  title="A Favor: ${c.favor_pct}%"></div>
-            <div class="cmp-seg contra" style="width:${c.contra_pct}%" title="En Contra: ${c.contra_pct}%"></div>
-            <div class="cmp-seg ausent" style="width:${Math.max(0, 100 - c.favor_pct - c.contra_pct)}%" title="Ausente/Abstención"></div>
-          </div>
-          <div class="cmp-vote-legend">
-            <span><span class="dot favor"></span> A Favor: <strong style="color:var(--color-favor)">${c.favor_pct}%</strong></span>
-            <span><span class="dot contra"></span> En Contra: <strong style="color:var(--color-contra)">${c.contra_pct}%</strong></span>
-            <span><span class="dot ausent"></span> Ausente: <strong>${absPct.toFixed(1)}%</strong></span>
-          </div>
-        </div>
-
-        <div class="cmp-stats-row">
-          <div class="cmp-stat">
-            <span class="cmp-stat-val">${c.sessions_attended}</span>
-            <span class="cmp-stat-key">sesiones</span>
-          </div>
-          <div class="cmp-stat">
-            <span class="cmp-stat-val">${c.total_votes}</span>
-            <span class="cmp-stat-key">votaciones</span>
-          </div>
-        </div>
-
-        <a href="/congressman/${c.id}" class="cmp-profile-btn">Ver perfil completo →</a>
-      </div>
-    `;
+  function calcAge(birthDate) {
+    if (!birthDate) return '—';
+    const today = new Date();
+    const bd = new Date(birthDate);
+    let age = today.getFullYear() - bd.getFullYear();
+    const m = today.getMonth() - bd.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < bd.getDate())) age--;
+    return age;
   }
 
-  function refreshGrid() {
-    const active = selected.filter(Boolean);
-    const grid   = document.getElementById('compareGrid');
-    const hint   = document.getElementById('emptyHint');
+  function pct(num, den) {
+    return den === 0 ? 0 : Math.round(1000 * num / den) / 10;
+  }
 
-    if (active.length === 0) {
-      grid.innerHTML = '';
-      hint.style.display = 'flex';
-      grid.style.gridTemplateColumns = '';
-    } else {
-      hint.style.display = 'none';
-      grid.style.gridTemplateColumns = `repeat(${active.length}, 1fr)`;
-      grid.innerHTML = selected
-        .filter(Boolean)
-        .map(c => renderCard(c))
-        .join('');
+  // Determine highlight: 'better' = higher is better, 'lower' = lower is better, 'neutral' = no highlight
+  function highlightClass(v1, v2, mode) {
+    if (v1 === v2 || mode === 'neutral') return ['', ''];
+    if (mode === 'higher') return v1 > v2 ? ['val-better', ''] : ['', 'val-better'];
+    if (mode === 'lower') return v1 < v2 ? ['val-better', ''] : ['', 'val-better'];
+    return ['', ''];
+  }
+
+  function renderSimilarityBanner() {
+    const el = document.getElementById('similarityBanner');
+    const c1 = selected[0], c2 = selected[1];
+    if (!c1 || !c2) { el.innerHTML = ''; return; }
+
+    const key = `${c1.id}_${c2.id}`;
+    const sim = SIM[key];
+
+    if (!sim) {
+      el.innerHTML = `
+        <div class="sim-banner-content">
+          <span class="sim-label">No hay datos de similitud disponibles entre estos diputados.</span>
+        </div>`;
+      return;
+    }
+
+    const scoreColor = sim.similarityScore >= 0.5 ? 'var(--color-favor)' :
+                       sim.similarityScore >= 0 ? '#f0a500' : 'var(--color-contra)';
+    const agrColor = sim.agreementPercentage >= 0.7 ? 'var(--color-favor)' :
+                     sim.agreementPercentage >= 0.5 ? '#f0a500' : 'var(--color-contra)';
+
+    el.innerHTML = `
+      <div class="sim-banner-content">
+        <div class="sim-stat">
+          <span class="sim-stat-value" style="color:${agrColor}">${(sim.agreementPercentage * 100).toFixed(1)}%</span>
+          <span class="sim-stat-label">Coincidencia</span>
+        </div>
+        <div class="sim-stat">
+          <span class="sim-stat-value">${sim.sameVotes.toLocaleString()}</span>
+          <span class="sim-stat-label">Votos iguales</span>
+        </div>
+        <div class="sim-stat">
+          <span class="sim-stat-value">${sim.commonVotes.toLocaleString()}</span>
+          <span class="sim-stat-label">Votaciones ambos presentes</span>
+        </div>
+      </div>`;
+  }
+
+  function renderProfiles() {
+    const el = document.getElementById('profileComparison');
+    const c1 = selected[0], c2 = selected[1];
+    if (!c1 || !c2) { el.innerHTML = ''; return; }
+
+    function profileCard(c) {
+      return `
+        <a href="/diputados/${c.id}" class="profile-card glass-panel">
+          <img src="/diputados/${c.id}.jpg" alt="${c.firstName} ${c.lastName}" class="profile-photo" />
+          <div class="profile-details">
+            <span class="profile-name">${c.firstName} ${c.lastName}</span>
+            <div class="profile-meta">
+              <span class="profile-chip">${c.blockName}</span>
+              <span class="profile-chip">${c.partyName || '—'}</span>
+              <span class="profile-chip">${c.districtName}</span>
+              <span class="profile-chip">${calcAge(c.birthDate)} a&ntilde;os</span>
+            </div>
+          </div>
+        </a>`;
+    }
+
+    el.innerHTML = `
+      <div class="profile-grid">
+        ${profileCard(c1)}
+        <div class="vs-divider">VS</div>
+        ${profileCard(c2)}
+      </div>`;
+  }
+
+  function renderMetrics() {
+    const el = document.getElementById('metricsTable');
+    const c1 = selected[0], c2 = selected[1];
+    if (!c1 || !c2) { el.innerHTML = ''; return; }
+
+    const totalSessions1 = c1.attendancePresent + c1.attendanceAbsent + c1.attendanceLicense;
+    const totalSessions2 = c2.attendancePresent + c2.attendanceAbsent + c2.attendanceLicense;
+    const totalVotes1 = c1.votesInFavor + c1.votesAgainst + c1.votesAbsent;
+    const totalVotes2 = c2.votesInFavor + c2.votesAgainst + c2.votesAbsent;
+    const participatedVotes1 = c1.votesInFavor + c1.votesAgainst;
+    const participatedVotes2 = c2.votesInFavor + c2.votesAgainst;
+
+    const metrics = [
+      { label: 'Sesiones', section: true },
+      { label: 'Asistencia', v1: c1.attendancePresent, v2: c2.attendancePresent, p1: pct(c1.attendancePresent, totalSessions1), p2: pct(c2.attendancePresent, totalSessions2), mode: 'higher', showPct: true },
+      { label: 'Ausencias', v1: c1.attendanceAbsent, v2: c2.attendanceAbsent, p1: pct(c1.attendanceAbsent, totalSessions1), p2: pct(c2.attendanceAbsent, totalSessions2), mode: 'lower', showPct: true },
+      { label: 'Licencias', v1: c1.attendanceLicense, v2: c2.attendanceLicense, p1: pct(c1.attendanceLicense, totalSessions1), p2: pct(c2.attendanceLicense, totalSessions2), mode: 'lower', showPct: true },
+      { label: 'Total sesiones', v1: totalSessions1, v2: totalSessions2, mode: 'neutral' },
+      { label: 'Votaciones', section: true },
+      { label: 'A Favor', v1: c1.votesInFavor, v2: c2.votesInFavor, p1: pct(c1.votesInFavor, totalVotes1), p2: pct(c2.votesInFavor, totalVotes2), mode: 'neutral', showPct: true },
+      { label: 'En Contra', v1: c1.votesAgainst, v2: c2.votesAgainst, p1: pct(c1.votesAgainst, totalVotes1), p2: pct(c2.votesAgainst, totalVotes2), mode: 'neutral', showPct: true },
+      { label: 'Ausente en votaci\u00f3n', v1: c1.votesAbsent, v2: c2.votesAbsent, p1: pct(c1.votesAbsent, totalVotes1), p2: pct(c2.votesAbsent, totalVotes2), mode: 'lower', showPct: true },
+      { label: 'Participaci\u00f3n en votaciones', v1: participatedVotes1, v2: participatedVotes2, p1: pct(participatedVotes1, totalVotes1), p2: pct(participatedVotes2, totalVotes2), mode: 'higher', showPct: true },
+      { label: 'Alineaci\u00f3n con mayor\u00eda', section: true },
+      { label: 'Con la mayor\u00eda', v1: c1.votesWithMajority, v2: c2.votesWithMajority, p1: pct(c1.votesWithMajority, participatedVotes1), p2: pct(c2.votesWithMajority, participatedVotes2), mode: 'neutral', showPct: true },
+      { label: 'Contra la mayor\u00eda', v1: c1.votesAgainstMajority, v2: c2.votesAgainstMajority, p1: pct(c1.votesAgainstMajority, participatedVotes1), p2: pct(c2.votesAgainstMajority, participatedVotes2), mode: 'neutral', showPct: true },
+    ];
+
+    let html = `
+      <div class="metrics-header">
+        <div class="metrics-header-name">${c1.firstName} ${c1.lastName}</div>
+        <div class="metrics-header-label">M\u00e9trica</div>
+        <div class="metrics-header-name">${c2.firstName} ${c2.lastName}</div>
+      </div>`;
+
+    for (const m of metrics) {
+      if (m.section) {
+        html += `<div class="metrics-section-title">${m.label}</div>`;
+        continue;
+      }
+
+      const [cls1, cls2] = highlightClass(
+        m.showPct ? m.p1 : m.v1,
+        m.showPct ? m.p2 : m.v2,
+        m.mode
+      );
+
+      const val1Display = m.showPct ? `${m.v1.toLocaleString()} <span class="metrics-pct">(${m.p1}%)</span>` : m.v1.toLocaleString();
+      const val2Display = m.showPct ? `${m.v2.toLocaleString()} <span class="metrics-pct">(${m.p2}%)</span>` : m.v2.toLocaleString();
+
+      html += `
+        <div class="metrics-row">
+          <div class="metrics-val metrics-val-left ${cls1}">${val1Display}</div>
+          <div class="metrics-label">${m.label}</div>
+          <div class="metrics-val metrics-val-right ${cls2}">${val2Display}</div>
+        </div>`;
+    }
+
+    el.innerHTML = html;
+  }
+
+  // Paired voting
+  let pairedVotingCache = [];
+
+  function buildPairedVoting() {
+    const c1 = selected[0], c2 = selected[1];
+    if (!c1 || !c2) { pairedVotingCache = []; return; }
+
+    pairedVotingCache = [];
+    for (const v of VOTING) {
+      const vt1 = v.votes[c1.id];
+      const vt2 = v.votes[c2.id];
+      if (vt1 === undefined || vt2 === undefined) continue;
+      pairedVotingCache.push({
+        votingId: v.votingId,
+        subject: v.subject,
+        voteType1: vt1,
+        voteType2: vt2,
+      });
     }
   }
 
-  // ─── Autocomplete per slot ─────────────────────────────────────────────────
+  function renderVoting() {
+    const el = document.getElementById('votingList');
+    const countEl = document.getElementById('votingCount');
+    const c1 = selected[0], c2 = selected[1];
+    if (!c1 || !c2) { el.innerHTML = ''; countEl.textContent = '0'; return; }
 
-  function setupSlot(slotIdx) {
-    const input    = document.getElementById(`slot-input-${slotIdx}`);
-    const dropdown = document.getElementById(`slot-dropdown-${slotIdx}`);
-    const clearBtn = document.getElementById(`slot-clear-${slotIdx}`);
+    const query = (document.getElementById('searchVoting')).value.toLowerCase().trim();
+    const behavior = (document.getElementById('filterBehavior')).value;
+
+    let filtered = pairedVotingCache;
+
+    if (query) {
+      filtered = filtered.filter(v => v.subject.toLowerCase().includes(query));
+    }
+
+    if (behavior === 'same') {
+      filtered = filtered.filter(v => v.voteType1 === v.voteType2 && v.voteType1 !== VOTE.ABSENT);
+    } else if (behavior === 'different') {
+      filtered = filtered.filter(v => v.voteType1 !== v.voteType2 && v.voteType1 !== VOTE.ABSENT && v.voteType2 !== VOTE.ABSENT);
+    } else if (behavior === 'one_absent') {
+      filtered = filtered.filter(v => (v.voteType1 === VOTE.ABSENT) !== (v.voteType2 === VOTE.ABSENT));
+    } else if (behavior === 'both_absent') {
+      filtered = filtered.filter(v => v.voteType1 === VOTE.ABSENT && v.voteType2 === VOTE.ABSENT);
+    }
+
+    countEl.textContent = filtered.length.toString();
+
+    if (filtered.length === 0) {
+      el.innerHTML = '<div class="voting-empty">No se encontraron votaciones con este filtro.</div>';
+      return;
+    }
+
+    el.innerHTML = filtered.map(v => {
+      const same = v.voteType1 === v.voteType2;
+      const bothAbsent = v.voteType1 === VOTE.ABSENT && v.voteType2 === VOTE.ABSENT;
+      const oneAbsent = (v.voteType1 === VOTE.ABSENT) !== (v.voteType2 === VOTE.ABSENT);
+      const rowClass = bothAbsent ? 'both-absent' : oneAbsent ? 'one-absent' : same ? 'same-vote' : 'diff-vote';
+
+      return `
+        <a href="/votaciones/${v.votingId}" class="voting-row ${rowClass}">
+          <div class="voting-pill" style="background:${voteColor(v.voteType1)}22;border-color:${voteColor(v.voteType1)};color:${voteColor(v.voteType1)}">${voteLabel(v.voteType1)}</div>
+          <div class="voting-subject">${v.subject}</div>
+          <div class="voting-pill" style="background:${voteColor(v.voteType2)}22;border-color:${voteColor(v.voteType2)};color:${voteColor(v.voteType2)}">${voteLabel(v.voteType2)}</div>
+        </a>`;
+    }).join('');
+  }
+
+  // Autocomplete setup
+  function setupSlot(idx) {
+    const input = document.getElementById(`input-${idx}`);
+    const dropdown = document.getElementById(`dropdown-${idx}`);
+    const clearBtn = document.getElementById(`clear-${idx}`);
 
     input.addEventListener('input', () => {
       const q = input.value.toLowerCase().trim();
@@ -179,7 +396,7 @@ const jsonData = JSON.stringify(dataset);
       if (!q || q.length < 2) { dropdown.classList.remove('open'); return; }
 
       const matches = DATA
-        .filter(c => `${c.first_name} ${c.last_name} ${c.party_name ?? ''}`.toLowerCase().includes(q))
+        .filter(c => `${c.firstName} ${c.lastName} ${c.partyName ?? ''} ${c.districtName ?? ''}`.toLowerCase().includes(q))
         .slice(0, 8);
 
       if (!matches.length) { dropdown.classList.remove('open'); return; }
@@ -188,15 +405,14 @@ const jsonData = JSON.stringify(dataset);
         const item = document.createElement('div');
         item.className = 'dd-item';
         item.innerHTML = `
-          <img src="/congressmen/face/${c.id}.jpg" alt="" class="dd-photo"
-               onerror="this.src='/placeholder.svg'; this.onerror=null;">
+          <img src="/diputados/${c.id}.jpg" alt="" class="dd-photo" />
           <div class="dd-text">
-            <span class="dd-name">${c.first_name} ${c.last_name}</span>
-            <span class="dd-party">${c.party_name ?? ''}</span>
+            <span class="dd-name">${c.firstName} ${c.lastName}</span>
+            <span class="dd-meta">${c.partyName ?? ''} · ${c.districtName ?? ''}</span>
           </div>`;
         item.addEventListener('mousedown', e => {
-          e.preventDefault(); // keep focus
-          selectCongressman(slotIdx, c);
+          e.preventDefault();
+          selectCongressman(idx, c);
         });
         dropdown.appendChild(item);
       });
@@ -208,69 +424,120 @@ const jsonData = JSON.stringify(dataset);
     });
 
     clearBtn.addEventListener('click', () => {
-      selected[slotIdx] = null;
+      selected[idx] = null;
       input.value = '';
       input.disabled = false;
       clearBtn.classList.add('hidden');
       dropdown.classList.remove('open');
-      refreshGrid();
+      document.getElementById(`preview-${idx}`).classList.add('hidden');
+      document.getElementById(`slot-${idx}`).classList.remove('selector-slot--selected');
+      refresh();
     });
   }
 
-  function selectCongressman(slotIdx, c) {
-    selected[slotIdx] = c;
-    const input    = document.getElementById(`slot-input-${slotIdx}`);
-    const dropdown = document.getElementById(`slot-dropdown-${slotIdx}`);
-    const clearBtn = document.getElementById(`slot-clear-${slotIdx}`);
+  function selectCongressman(idx, c) {
+    selected[idx] = c;
+    const input = document.getElementById(`input-${idx}`);
+    const dropdown = document.getElementById(`dropdown-${idx}`);
+    const clearBtn = document.getElementById(`clear-${idx}`);
+    const preview = document.getElementById(`preview-${idx}`);
+    const previewPhoto = document.getElementById(`preview-photo-${idx}`);
+    const slot = document.getElementById(`slot-${idx}`);
 
-    input.value    = `${c.first_name} ${c.last_name}`;
+    input.value = `${c.firstName} ${c.lastName}`;
     input.disabled = true;
     dropdown.classList.remove('open');
     clearBtn.classList.remove('hidden');
-    refreshGrid();
+    previewPhoto.src = `/diputados/${c.id}.jpg`;
+    preview.classList.remove('hidden');
+    slot.classList.add('selector-slot--selected');
+    refresh();
   }
 
-  // Init all slots
-  [0, 1, 2].forEach(i => setupSlot(i));
+  function refresh() {
+    const emptyState = document.getElementById('emptyState');
+    const content = document.getElementById('compareContent');
+    const bothSelected = selected[0] && selected[1];
+
+    emptyState.classList.toggle('hidden', bothSelected);
+    content.classList.toggle('hidden', !bothSelected);
+
+    if (bothSelected) {
+      buildPairedVoting();
+      renderSimilarityBanner();
+      renderProfiles();
+      renderMetrics();
+      renderVoting();
+    }
+  }
+
+  [0, 1].forEach(i => setupSlot(i));
+
+  // Voting filters
+  document.getElementById('searchVoting')?.addEventListener('input', renderVoting);
+  document.getElementById('filterBehavior')?.addEventListener('change', renderVoting);
 </script>
 
 <style>
-  .page-header { margin-bottom: 2rem; }
+  .page-header { margin-bottom: 1.5rem; }
 
-  /* Slot bar */
-  .slot-bar {
-    display: flex;
+  .hidden { display: none !important; }
+
+  /* ── Selector bar ────────────────────────────────── */
+  .selector-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 1rem;
     margin-bottom: 1.5rem;
-    flex-wrap: wrap;
   }
-  .slot {
+  .selector-slot {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    flex: 1;
-    min-width: 200px;
+    gap: 0.65rem;
     position: relative;
-  }
-  .slot-search-wrap { flex: 1; position: relative; }
-
-  .slot-input {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    border-radius: 10px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-secondary);
-    color: var(--text-main);
-    font-size: 0.95rem;
-    font-family: inherit;
-    outline: none;
+    z-index: 10;
+    padding: 0.6rem 0.75rem;
     transition: border-color var(--transition-fast);
   }
-  .slot-input:focus    { border-color: var(--accent-color); }
-  .slot-input:disabled { background: var(--bg-tertiary); color: var(--text-light); font-weight: 600; }
-
-  /* Dropdown */
-  .slot-dropdown {
+  .selector-slot--selected {
+    border-color: var(--accent-color);
+  }
+  .selector-preview {
+    flex-shrink: 0;
+  }
+  .selector-preview-photo {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border-color);
+  }
+  .selector-slot--selected .selector-preview-photo {
+    border-color: var(--accent-color);
+  }
+  .selector-search-wrap { flex: 1; position: relative; }
+  .selector-input {
+    width: 100%;
+    padding: 0.65rem 0.85rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-main);
+    font-size: 0.92rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+  }
+  .selector-input:focus { border-color: var(--accent-color); background: var(--bg-secondary); }
+  .selector-input:disabled {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-light);
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding-left: 0;
+  }
+  .selector-dropdown {
     display: none;
     position: absolute;
     top: calc(100% + 4px);
@@ -282,9 +549,8 @@ const jsonData = JSON.stringify(dataset);
     z-index: 100;
     overflow: hidden;
   }
-  .slot-dropdown.open { display: block; }
-
-  .dd-item {
+  .selector-dropdown.open { display: block; }
+  :global(.dd-item) {
     display: flex;
     align-items: center;
     gap: 0.65rem;
@@ -292,124 +558,321 @@ const jsonData = JSON.stringify(dataset);
     cursor: pointer;
     transition: background var(--transition-fast);
   }
-  .dd-item:hover { background: var(--bg-tertiary); }
-  .dd-photo { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
-  .dd-text  { display: flex; flex-direction: column; min-width: 0; }
-  .dd-name  { font-size: 0.85rem; font-weight: 600; color: var(--text-light); }
-  .dd-party { font-size: 0.72rem; color: var(--text-muted); }
-
-  /* Clear button */
-  .slot-clear {
+  :global(.dd-item:hover) { background: var(--bg-tertiary); }
+  :global(.dd-photo) { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--border-color); }
+  :global(.dd-text) { display: flex; flex-direction: column; min-width: 0; }
+  :global(.dd-name) { font-size: 0.85rem; font-weight: 600; color: var(--text-light); }
+  :global(.dd-meta) { font-size: 0.72rem; color: var(--text-muted); }
+  .selector-clear {
     width: 28px; height: 28px; flex-shrink: 0;
     background: var(--bg-tertiary); border: 1px solid var(--border-color);
-    border-radius: 50%; cursor: pointer; font-size: 0.7rem;
+    border-radius: 50%; cursor: pointer;
     color: var(--text-muted); transition: all var(--transition-fast);
     display: flex; align-items: center; justify-content: center;
   }
-  .slot-clear:hover { background: var(--color-contra); color: #fff; border-color: var(--color-contra); }
-  .hidden { display: none !important; }
+  .selector-clear:hover { background: var(--color-contra); color: #fff; border-color: var(--color-contra); }
 
-  /* Empty hint */
-  .empty-hint {
+  /* ── Empty state ─────────────────────────────────── */
+  .empty-state {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
-    padding: 2rem;
-    margin-top: 1rem;
+    justify-content: center;
+    padding: 3rem 2rem;
+    text-align: center;
   }
-  .hint-icon { font-size: 2.5rem; flex-shrink: 0; }
+  .empty-state-content { max-width: 340px; }
+  .empty-state-content strong { font-size: 1.05rem; color: var(--text-light); }
+  .empty-state-content p { margin-top: 0.35rem; font-size: 0.85rem; }
 
-  /* Compare grid */
-  .compare-grid {
-    display: grid;
-    gap: 1.25rem;
-    align-items: start;
-    margin-top: 0.5rem;
+  /* ── Similarity banner ───────────────────────────── */
+  :global(.similarity-banner) {
+    margin-bottom: 1.5rem;
   }
-
-  /* Individual comparison card */
-  .cmp-card {
+  :global(.sim-banner-content) {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+  :global(.sim-stat) {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
-    padding: 1.5rem;
+    align-items: center;
+    gap: 0.15rem;
+    min-width: 100px;
+  }
+  :global(.sim-stat-value) {
+    font-size: 1.6rem;
+    font-weight: 800;
+    line-height: 1.2;
+    color: var(--text-light);
+  }
+  :global(.sim-stat-label) {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
   }
 
-  .cmp-link {
+  /* ── Profile cards ───────────────────────────────── */
+  :global(.profile-grid) {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+  :global(.profile-card) {
     display: flex;
     align-items: center;
     gap: 0.85rem;
     color: inherit;
     text-decoration: none;
+    transition: border-color var(--transition-fast);
   }
-  .cmp-link:hover .cmp-name { color: var(--accent-color); }
-
-  .cmp-photo {
-    width: 56px; height: 56px; border-radius: 50%;
-    object-fit: cover; flex-shrink: 0;
-    border: 2px solid var(--border-color);
+  :global(.profile-card:hover) {
+    border-color: var(--accent-color);
   }
-  .cmp-identity { display: flex; flex-direction: column; min-width: 0; }
-  .cmp-name     { font-size: 1rem; font-weight: 700; color: var(--text-light); }
-  .cmp-party    { font-size: 0.78rem; color: var(--text-muted); }
-  .cmp-district { font-size: 0.72rem; color: var(--text-muted); }
-
-  .cmp-section { display: flex; flex-direction: column; gap: 0.5rem; }
-  .cmp-label { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-
-  /* Attendance bar */
-  .cmp-bar-row   { display: flex; align-items: center; gap: 0.5rem; }
-  .cmp-bar-track { flex: 1; height: 10px; background: var(--bg-tertiary); border-radius: 999px; overflow: hidden; }
-  .cmp-bar-fill  { height: 100%; border-radius: 999px; }
-  .cmp-pct       { font-size: 0.85rem; font-weight: 700; flex-shrink: 0; }
-
-  /* Triple vote bar */
-  .cmp-triple-bar {
-    display: flex; height: 10px; border-radius: 999px; overflow: hidden;
+  :global(.profile-photo) {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 3px solid var(--border-color);
+  }
+  :global(.profile-details) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+  :global(.profile-name) {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-light);
+  }
+  :global(.profile-meta) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  :global(.profile-chip) {
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.15em 0.5em;
+    border-radius: 6px;
     background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    white-space: nowrap;
   }
-  .cmp-seg { height: 100%; transition: width 0.3s; }
-  .cmp-seg.favor  { background: var(--color-favor); }
-  .cmp-seg.contra { background: var(--color-contra); }
-  .cmp-seg.ausent { background: var(--color-ausente); }
-
-  .cmp-vote-legend {
-    display: flex; flex-wrap: wrap; gap: 0.5rem 1rem;
-    font-size: 0.75rem; color: var(--text-muted);
+  :global(.vs-divider) {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: var(--text-muted);
+    text-align: center;
+    letter-spacing: 0.05em;
   }
-  .cmp-vote-legend span { display: flex; align-items: center; gap: 0.3rem; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .dot.favor  { background: var(--color-favor); }
-  .dot.contra { background: var(--color-contra); }
-  .dot.ausent { background: var(--color-ausente); }
 
-  /* Stats row */
-  .cmp-stats-row { display: flex; gap: 1rem; }
-  .cmp-stat {
-    flex: 1;
-    background: var(--bg-tertiary);
+  /* ── Metrics table ───────────────────────────────── */
+  :global(.metrics-header) {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0.5rem;
+    padding: 0.6rem 0.75rem;
     border-radius: 8px;
-    padding: 0.6rem;
+    background: var(--bg-tertiary);
+    margin-bottom: 0.25rem;
+  }
+  :global(.metrics-header-name) {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-light);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  :global(.metrics-header-name:first-child) { text-align: left; }
+  :global(.metrics-header-name:last-child) { text-align: right; }
+  :global(.metrics-header-label) {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    min-width: 140px;
+  }
+  :global(.metrics-section-title) {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent-color);
+    padding: 0.75rem 0.75rem 0.35rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  :global(.metrics-row) {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
+    align-items: center;
+  }
+  :global(.metrics-row:last-child) { border-bottom: none; }
+  :global(.metrics-label) {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-align: center;
+    min-width: 140px;
+  }
+  :global(.metrics-val) {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-main);
+  }
+  :global(.metrics-val-left) { text-align: left; }
+  :global(.metrics-val-right) { text-align: right; }
+  :global(.metrics-pct) {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  :global(.val-better) {
+    color: var(--accent-color);
+    font-weight: 700;
+  }
+
+  /* ── Voting filters ──────────────────────────────── */
+  .voting-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .filter-group label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .filter-input {
+    padding: 0.55rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+    width: 100%;
+    transition: border-color var(--transition-fast);
+  }
+  .filter-input:focus { border-color: var(--accent-color); }
+
+  /* ── Voting list ─────────────────────────────────── */
+  :global(.voting-list) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-height: 600px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+  }
+  :global(.voting-list::-webkit-scrollbar) { width: 5px; }
+  :global(.voting-list::-webkit-scrollbar-thumb) { background: var(--border-color); border-radius: 3px; }
+  :global(.voting-row) {
+    display: grid;
+    grid-template-columns: 90px 1fr 90px;
+    gap: 0.6rem;
+    align-items: center;
+    padding: 0.55rem 0.65rem;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: inherit;
+    text-decoration: none;
+    transition: border-color var(--transition-fast);
+  }
+  :global(.voting-row:hover) { border-color: var(--accent-color); }
+  :global(.voting-row.same-vote) { }
+  :global(.voting-row.diff-vote) { }
+  :global(.voting-row.one-absent) { }
+  :global(.voting-row.both-absent) { }
+  :global(.voting-pill) {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.25em 0.5em;
+    border-radius: 999px;
+    border: 1px solid;
+    text-align: center;
+    white-space: nowrap;
+  }
+  :global(.voting-subject) {
+    font-size: 0.82rem;
+    line-height: 1.35;
+    color: var(--text-light);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     text-align: center;
   }
-  .cmp-stat-val { display: block; font-size: 1.3rem; font-weight: 800; color: var(--text-light); }
-  .cmp-stat-key { font-size: 0.7rem; color: var(--text-muted); }
-
-  /* Profile button */
-  .cmp-profile-btn {
-    display: block; text-align: center;
-    padding: 0.65rem;
-    border-radius: 8px;
-    background: var(--bg-tertiary);
-    color: var(--accent-color);
-    font-size: 0.85rem; font-weight: 600;
-    border: 1px solid var(--border-color);
-    transition: all var(--transition-fast);
+  :global(.voting-empty) {
+    text-align: center;
+    padding: 2rem 1rem;
+    color: var(--text-muted);
+    font-size: 0.88rem;
   }
-  .cmp-profile-btn:hover { background: var(--accent-color); color: #fff; border-color: var(--accent-color); }
+  :global(.voting-more-hint) {
+    text-align: center;
+    padding: 0.75rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-style: italic;
+  }
+  .vote-count-badge {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.15em 0.6em;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+  }
 
+  /* ── Responsive ──────────────────────────────────── */
   @media (max-width: 640px) {
-    .slot-bar { flex-direction: column; }
-    .compare-grid { grid-template-columns: 1fr !important; }
+    .selector-bar { grid-template-columns: 1fr; }
+    :global(.profile-grid) {
+      grid-template-columns: 1fr;
+      text-align: center;
+    }
+    :global(.profile-card) {
+      flex-direction: column;
+      text-align: center;
+    }
+    :global(.profile-meta) { justify-content: center; }
+    :global(.vs-divider) { font-size: 0.75rem; }
+    :global(.metrics-header-label),
+    :global(.metrics-label) { min-width: 90px; font-size: 0.68rem; }
+    :global(.metrics-val) { font-size: 0.78rem; }
+    .voting-filters { grid-template-columns: 1fr; }
+    :global(.voting-row) {
+      grid-template-columns: 70px 1fr 70px;
+      gap: 0.35rem;
+      padding: 0.45rem 0.5rem;
+    }
+    :global(.voting-pill) { font-size: 0.62rem; }
+    :global(.voting-subject) { font-size: 0.75rem; }
   }
 </style>

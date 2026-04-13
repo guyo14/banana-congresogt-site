@@ -298,21 +298,54 @@ def run_transform():
 
     Log.info("Calculating Congressman Similarity...")
     if not v_df.empty:
-        # Map votes to numeric
-        val_map = {VoteType.in_favor.value: 1, VoteType.against.value: -1, VoteType.absent.value: 0}
-        v_df['vote_val'] = v_df['vote_type'].map(val_map).fillna(0)
+        # Only consider votes where the congressman was present (not absent)
+        present_votes = v_df[v_df['vote_type'] != VoteType.absent.value][['congressman_id', 'voting_id', 'vote_type']].copy()
+        val_map = {VoteType.in_favor.value: 1, VoteType.against.value: -1}
+        present_votes['vote_val'] = present_votes['vote_type'].map(val_map)
 
-        pivot = v_df.pivot_table(index='congressman_id', columns='voting_id', values='vote_val', fill_value=0)
-        # Pearson correlation matrix (T correlates index, ie. congressmen)
-        corr = pivot.T.corr(method='pearson')
+        # Pivot: NaN means the congressman was absent for that voting
+        pivot = present_votes.pivot_table(index='congressman_id', columns='voting_id', values='vote_val')
+        congressman_ids = pivot.index.tolist()
+        pivot_values = pivot.values
 
-        # Melt it
-        corr = corr.reset_index().melt(id_vars='congressman_id', var_name='congressman_2_id', value_name='similarity_score')
-        # Filter self-correlation to save space
-        corr = corr[corr['congressman_id'] != corr['congressman_2_id']].dropna()
+        rows = []
+        for i in range(len(congressman_ids)):
+            for j in range(i + 1, len(congressman_ids)):
+                a = pivot_values[i]
+                b = pivot_values[j]
+                # Mask: both congressmen voted (neither is NaN)
+                both_present = ~np.isnan(a) & ~np.isnan(b)
+                common_votes = int(both_present.sum())
 
-        corr.to_csv('data/congressman_similarity.csv', index=False)
+                if common_votes < 2:
+                    continue
+
+                a_common = a[both_present]
+                b_common = b[both_present]
+
+                same_votes = int((a_common == b_common).sum())
+                agreement_percentage = round(same_votes / common_votes, 4)
+
+                # Pearson correlation on the common votes only
+                std_a = np.std(a_common)
+                std_b = np.std(b_common)
+                if std_a == 0 or std_b == 0:
+                    # Both voted the same way every time they coincided
+                    similarity_score = 1.0 if np.array_equal(a_common, b_common) else -1.0
+                else:
+                    similarity_score = round(float(np.corrcoef(a_common, b_common)[0, 1]), 6)
+
+                c1 = congressman_ids[i]
+                c2 = congressman_ids[j]
+                rows.append((c1, c2, similarity_score, common_votes, same_votes, agreement_percentage))
+                rows.append((c2, c1, similarity_score, common_votes, same_votes, agreement_percentage))
+
+        sim_df = pd.DataFrame(rows, columns=[
+            'congressman_id', 'congressman_2_id', 'similarity_score',
+            'common_votes', 'same_votes', 'agreement_percentage'
+        ])
+        sim_df.to_csv('data/congressman_similarity.csv', index=False)
     else:
-        pd.DataFrame(columns=['congressman_id', 'congressman_2_id', 'similarity_score']).to_csv('../data/congressman_similarity.csv', index=False)
+        pd.DataFrame(columns=['congressman_id', 'congressman_2_id', 'similarity_score', 'common_votes', 'same_votes', 'agreement_percentage']).to_csv('data/congressman_similarity.csv', index=False)
 
     print("All transformations complete.")

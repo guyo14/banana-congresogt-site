@@ -131,6 +131,9 @@ interface CongressmanSimilarity {
     congressman_id: number;
     congressman_2_id: number;
     similarity_score: number;
+    common_votes: number;
+    same_votes: number;
+    agreement_percentage: number;
 }
 
 // Create an in-memory database
@@ -264,6 +267,9 @@ CREATE TABLE IF NOT EXISTS congressman_similarity (
     congressman_id INTEGER NOT NULL,
     congressman_2_id INTEGER NOT NULL,
     similarity_score REAL NOT NULL,
+    common_votes INTEGER NOT NULL,
+    same_votes INTEGER NOT NULL,
+    agreement_percentage REAL NOT NULL,
     PRIMARY KEY (congressman_id, congressman_2_id)
 );
 `);
@@ -319,7 +325,7 @@ function ingestData() {
     const insertPStats = db.prepare<PartyStats>('INSERT INTO party_stats (id, period, attendance_present, attendance_absent, attendance_license, votes_in_favor, votes_against, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_license, @votes_in_favor, @votes_against, @votes_absent, @rice_index)');
     const insertDStats = db.prepare<DistrictStats>('INSERT INTO district_stats (id, period, attendance_present, attendance_absent, attendance_license, votes_in_favor, votes_against, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_license, @votes_in_favor, @votes_against, @votes_absent, @rice_index)');
     const insertBStats = db.prepare<BlockStats>('INSERT INTO block_stats (id, period, attendance_present, attendance_absent, attendance_license, votes_in_favor, votes_against, votes_absent, rice_index) VALUES (@id, @period, @attendance_present, @attendance_absent, @attendance_license, @votes_in_favor, @votes_against, @votes_absent, @rice_index)');
-    const insertCSim = db.prepare<CongressmanSimilarity>('INSERT INTO congressman_similarity (congressman_id, congressman_2_id, similarity_score) VALUES (@congressman_id, @congressman_2_id, @similarity_score)');
+    const insertCSim = db.prepare<CongressmanSimilarity>('INSERT INTO congressman_similarity (congressman_id, congressman_2_id, similarity_score, common_votes, same_votes, agreement_percentage) VALUES (@congressman_id, @congressman_2_id, @similarity_score, @common_votes, @same_votes, @agreement_percentage)');
 
     // Execute in transactions for speed
     const insertMany = <T extends {}>(stmt: Statement<[T], any>, items: T[]) => {

@@ -30,6 +30,8 @@ Requires a `.env` file with `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_
 
 python main.py scrape --action all          # Scrape all data from congress website
 python main.py scrape --action load_sessions # Scrape only new sessions (default)
+python main.py scrape --session-start 41168  # Start from specific session ID
+python main.py scrape --log-level DEBUG      # Set log verbosity (DEBUG/INFO/WARNING/ERROR)
 python main.py transform                    # Transform DB data → CSV files in /data
 python main.py db                           # Initialize DB from backup
 python main.py pipeline                     # Run full pipeline (scrape + transform)
@@ -64,7 +66,7 @@ src/pages/**/*.astro  (static HTML generation)
 - **`src/lib/mappers.ts`**: Enum constants (`VOTE_TYPE`, `ATTENDANCE_STATUS`, `SESSION_TYPE`, `CONGRESSMAN_STATUS`, `PERIOD`) used in both queries and page logic. Also contains display string helpers.
 - **`src/lib/paths.ts`**: URL path helpers for routing.
 - **`src/lib/util.ts`**: General utility functions.
-- **`src/pages/`**: Astro pages using file-based routing. Dynamic routes (`[id].astro`) call `getStaticPaths()` which queries all IDs and pre-renders one page per entity.
+- **`src/pages/`**: Astro pages using file-based routing. Dynamic routes (`[id].astro`) call `getStaticPaths()` which queries all IDs and pre-renders one page per entity. Top-level pages include `index.astro`, `rankings.astro`, and `compare.astro`.
 - **`src/components/`**: Reusable Astro components including chart wrappers (`ApexCharts`, `Chart.js`) and data display components.
 
 ### Data Model (in-memory SQLite)

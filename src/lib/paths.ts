@@ -5,6 +5,7 @@ export const PARTIES_PATH = "/partidos";
 export const SESSIONS_PATH = "/sesiones";
 export const VOTING_PATH = "/votaciones";
 export const RANKINGS_PATH = "/rankings";
+export const COMPARE_PATH = "/compare";
 
 export function getCongressmanPath(id: number) {
   return `/diputados/${id}`;

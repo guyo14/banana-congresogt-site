@@ -667,6 +667,103 @@ export const getCongressmenVotingAction = (id: number) =>
     ORDER BY b.short_name, p.name, c.first_name
   `).all(id);
 
+interface SimilarCongressman {
+  congressmanId: number;
+  firstName: string;
+  lastName: string;
+  partyName: string;
+  blockName: string;
+  similarityScore: number;
+  commonVotes: number;
+  sameVotes: number;
+  agreementPercentage: number;
+}
+
+export function getSimilarCongressmen(id: number, limit: number = 10) {
+  return db.prepare<[number, number], SimilarCongressman>(`
+    SELECT
+      cs.congressman_2_id AS congressmanId,
+      c.first_name AS firstName,
+      c.last_name AS lastName,
+      COALESCE(p.short_name, '') AS partyName,
+      COALESCE(b.short_name, 'Ind.') AS blockName,
+      cs.similarity_score AS similarityScore,
+      cs.common_votes AS commonVotes,
+      cs.same_votes AS sameVotes,
+      cs.agreement_percentage AS agreementPercentage
+    FROM congressman_similarity cs
+    JOIN congressmen c ON cs.congressman_2_id = c.id
+    LEFT JOIN parties p ON c.party_id = p.id
+    LEFT JOIN blocks b ON c.block_id = b.id
+    WHERE cs.congressman_id = ? AND c.status = ${CONGRESSMAN_STATUS.ACTIVE}
+    ORDER BY cs.agreement_percentage DESC
+    LIMIT ?
+  `).all(id, limit);
+}
+
+export function getDissimilarCongressmen(id: number, limit: number = 5) {
+  return db.prepare<[number, number], SimilarCongressman>(`
+    SELECT
+      cs.congressman_2_id AS congressmanId,
+      c.first_name AS firstName,
+      c.last_name AS lastName,
+      COALESCE(p.short_name, '') AS partyName,
+      COALESCE(b.short_name, 'Ind.') AS blockName,
+      cs.similarity_score AS similarityScore,
+      cs.common_votes AS commonVotes,
+      cs.same_votes AS sameVotes,
+      cs.agreement_percentage AS agreementPercentage
+    FROM congressman_similarity cs
+    JOIN congressmen c ON cs.congressman_2_id = c.id
+    LEFT JOIN parties p ON c.party_id = p.id
+    LEFT JOIN blocks b ON c.block_id = b.id
+    WHERE cs.congressman_id = ? AND c.status = ${CONGRESSMAN_STATUS.ACTIVE}
+    ORDER BY cs.agreement_percentage ASC
+    LIMIT ?
+  `).all(id, limit);
+}
+
+interface PairedVote {
+  votingId: number;
+  subject: string;
+  voteType1: number;
+  voteType2: number;
+}
+
+export function getPairedVotes(id1: number, id2: number) {
+  return db.prepare<[number, number], PairedVote>(`
+    SELECT
+      vot.id AS votingId,
+      vot.subject,
+      v1.vote_type AS voteType1,
+      v2.vote_type AS voteType2
+    FROM voting vot
+    JOIN votes v1 ON v1.voting_id = vot.id AND v1.congressman_id = ?
+    JOIN votes v2 ON v2.voting_id = vot.id AND v2.congressman_id = ?
+    JOIN sessions s ON vot.session_id = s.id
+    ORDER BY s.start_date DESC, vot.id DESC
+  `).all(id1, id2);
+}
+
+interface SimilarityData {
+  similarityScore: number;
+  commonVotes: number;
+  sameVotes: number;
+  agreementPercentage: number;
+}
+
+export function getSimilarityBetween(id1: number, id2: number) {
+  return db.prepare<[number, number], SimilarityData>(`
+    SELECT
+      similarity_score AS similarityScore,
+      common_votes AS commonVotes,
+      same_votes AS sameVotes,
+      agreement_percentage AS agreementPercentage
+    FROM congressman_similarity
+    WHERE congressman_id = ? AND congressman_2_id = ?
+  `).get(id1, id2);
+}
+
 export const getVotingSummaries = () =>
   db.prepare<[], VotingSummary>(`
     SELECT
