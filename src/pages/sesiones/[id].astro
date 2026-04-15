@@ -133,10 +133,10 @@ const ATTENDANCE_FILTERS = [
     {
       voting.length > 0 ? (
         <div class="votation-list" id="votationList">
-          {voting.map((v, index) => (
+          {voting.map((v) => (
             <VotationCard
               href={getVotingPath(v.id)}
-              number={index + 1}
+              number={v.sessionVotingNumber}
               subject={v.subject}
               votesInFavor={v.totalInFavor}
               votesAgainst={v.totalAgainst}

@@ -45,6 +45,9 @@ interface Voting {
     id: number;
     session_id: number;
     subject: string;
+    start_date: string;
+    voting_number: number;
+    session_voting_number: number;
     votes_in_favor_x: number;
     votes_against_x: number;
     votes_absent_x: number;
@@ -183,6 +186,9 @@ CREATE TABLE IF NOT EXISTS voting (
     id INTEGER PRIMARY KEY,
     session_id INTEGER NOT NULL,
     subject TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    voting_number INTEGER NOT NULL,
+    session_voting_number INTEGER NOT NULL,
     votes_in_favor INTEGER NOT NULL,
     votes_against INTEGER NOT NULL,
     votes_absent INTEGER NOT NULL,
@@ -316,7 +322,7 @@ function ingestData() {
     const insertDistrict = db.prepare<District>('INSERT INTO districts (id, name, key) VALUES (@id, @name, @key)');
     const insertCongressman = db.prepare<Congressman>('INSERT INTO congressmen (id, first_name, last_name, party_id, district_id, birth_date, status, block_id) VALUES (@id, @first_name, @last_name, @party_id, @district_id, @birth_date, @status, @block_id)');
     const insertSession = db.prepare<Session>('INSERT INTO sessions (id, type, session_number, start_date, period) VALUES (@id, @type, @session_number, @start_date, @period)');
-    const insertVoting = db.prepare<Voting>('INSERT INTO voting (id, session_id, subject, votes_in_favor, votes_against, votes_absent, attendance_present, attendance_absent, attendance_license, majority) VALUES (@id, @session_id, @subject, @votes_in_favor, @votes_against, @votes_absent, @attendance_present, @attendance_absent, @attendance_license, @majority)');
+    const insertVoting = db.prepare<Voting>('INSERT INTO voting (id, session_id, subject, start_date, voting_number, session_voting_number, votes_in_favor, votes_against, votes_absent, attendance_present, attendance_absent, attendance_license, majority) VALUES (@id, @session_id, @subject, @start_date, @voting_number, @session_voting_number, @votes_in_favor, @votes_against, @votes_absent, @attendance_present, @attendance_absent, @attendance_license, @majority)');
     const insertVote = db.prepare<Vote>('INSERT INTO votes (voting_id, congressman_id, vote_type, attendance_status, session_id, period, with_majority) VALUES (@voting_id, @congressman_id, @vote_type, @attendance_status, @session_id, @period, @with_majority)');
     const insertAttendance = db.prepare<Attendance>('INSERT INTO attendance (session_id, congressman_id, status) VALUES (@session_id, @congressman_id, @status)');
 

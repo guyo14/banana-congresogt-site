@@ -17,23 +17,21 @@ export async function getStaticPaths() {
 
 const id = Number.parseInt(Astro.params.id);
 
-// Fetch all voting IDs to compute the global number
-const allVoting = getAllVotingId();
-const globalNumber = allVoting.length - allVoting.findIndex((v) => v.id === id);
-
 const voting = getVotingById(id);
 
 if (!voting) throw new Error(`Voting ${id} not found`);
 
 const votesList = getCongressmenVotingAction(id)
 
-const formatDate = (dateString: string) => {
+const formatDateTime = (dateString: string) => {
   const options: Intl.DateTimeFormatOptions = {
     year: "numeric",
     month: "long",
     day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   };
-  return new Date(dateString).toLocaleDateString("es-GT", options);
+  return new Date(dateString).toLocaleString("es-GT", options);
 };
 
 const VOTE_ACTION_MAP = {
@@ -49,14 +47,14 @@ const VOTE_FILTERS = [
 ];
 ---
 
-<Layout title={`Votación #${globalNumber}: ${voting.subject.substring(0, 30)}...`}>
+<Layout title={`Votación #${voting.votingNumber}: ${voting.subject.substring(0, 30)}...`}>
   <div class="page-header">
     <div class="header-meta">
-      <span class="badge">#{globalNumber}</span>
+      <span class="badge">#{voting.votingNumber}</span>
       <span class="badge">
         {voting.period} Sesión {getSessionTypeString(voting.sessionType)} No. {voting.sessionNumber}
       </span>
-      <span class="text-muted">{formatDate(voting.startDate)}</span>
+      <span class="text-muted">{formatDateTime(voting.startDate)}</span>
     </div>
     <h1>{voting.subject}</h1>
   </div>

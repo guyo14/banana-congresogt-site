@@ -1,5 +1,5 @@
 import db from "./db.ts";
-import {ATTENDANCE_STATUS, CONGRESSMAN_STATUS, PERIOD, VOTE_TYPE} from "./mappers.ts";
+import { ATTENDANCE_STATUS, CONGRESSMAN_STATUS, PERIOD, VOTE_TYPE } from "./mappers.ts";
 
 export interface CountQuery {
   count: number;
@@ -82,6 +82,8 @@ interface Vote {
 interface Voting {
   id: number;
   subject: string;
+  startDate: string;
+  sessionVotingNumber: number;
   totalInFavor: number;
   totalAgainst: number;
   totalAbsent: number;
@@ -91,6 +93,7 @@ interface VotingDetail {
   id: number;
   subject: string;
   startDate: string;
+  votingNumber: number;
   sessionNumber: number;
   sessionType: number;
   period: string;
@@ -107,6 +110,7 @@ interface VotingSummary {
   id: number;
   subject: string;
   startDate: string;
+  votingNumber: number;
   sessionNumber: number;
   sessionType: number;
   period: string;
@@ -158,7 +162,7 @@ export const countSessions = generateCountQuery('sessions');
 
 export const countVoting = generateCountQuery('voting');
 
-export const countActiveCongressmen = ()=>
+export const countActiveCongressmen = () =>
   db.prepare<number, CountQuery>(`
     SELECT COUNT(*) as count
     FROM congressmen
@@ -557,14 +561,16 @@ export function getVotingBySession(id: number) {
     SELECT
       vot.id,
       vot.subject,
+      vot.start_date AS startDate,
+      vot.session_voting_number AS sessionVotingNumber,
       SUM(CASE WHEN v.vote_type = ${VOTE_TYPE.IN_FAVOR} THEN 1 ELSE 0 END) AS totalInFavor,
       SUM(CASE WHEN v.vote_type = ${VOTE_TYPE.AGAINST}  THEN 1 ELSE 0 END) AS totalAgainst,
       SUM(CASE WHEN v.vote_type = ${VOTE_TYPE.ABSENT}   THEN 1 ELSE 0 END) AS totalAbsent
     FROM voting vot
     LEFT JOIN votes v ON v.voting_id = vot.id
     WHERE vot.session_id = ?
-    GROUP BY vot.id, vot.subject
-    ORDER BY vot.id
+    GROUP BY vot.id, vot.subject, vot.start_date, vot.session_voting_number
+    ORDER BY vot.start_date
   `).all(id);
 }
 
@@ -597,7 +603,7 @@ export function getVotesByCongressman(id: number) {
     JOIN voting vot ON v.voting_id = vot.id
     JOIN sessions s ON vot.session_id = s.id
     WHERE v.congressman_id = ?
-    ORDER BY votingId DESC
+    ORDER BY vot.voting_number DESC
   `).all(id);
 }
 
@@ -626,10 +632,11 @@ export function getCongressmenSessionAction(id: number) {
 
 export const getVotingById = (id: number) =>
   db.prepare<number, VotingDetail>(`
-    SELECT 
+    SELECT
       v.id,
       v.subject,
-      s.start_date AS startDate,
+      v.start_date AS startDate,
+      v.voting_number AS votingNumber,
       s.session_number AS sessionNumber,
       s.type as session_type,
       s.period,
@@ -740,8 +747,7 @@ export function getPairedVotes(id1: number, id2: number) {
     FROM voting vot
     JOIN votes v1 ON v1.voting_id = vot.id AND v1.congressman_id = ?
     JOIN votes v2 ON v2.voting_id = vot.id AND v2.congressman_id = ?
-    JOIN sessions s ON vot.session_id = s.id
-    ORDER BY s.start_date DESC, vot.id DESC
+    ORDER BY vot.voting_number DESC
   `).all(id1, id2);
 }
 
@@ -769,7 +775,8 @@ export const getVotingSummaries = () =>
     SELECT
       v.id,
       v.subject,
-      s.start_date AS startDate,
+      v.start_date AS startDate,
+      v.voting_number AS votingNumber,
       s.session_number AS sessionNumber,
       s.type AS session_type,
       s.period,
@@ -779,5 +786,90 @@ export const getVotingSummaries = () =>
       v.majority
     FROM voting v
     JOIN sessions s ON v.session_id = s.id
-    ORDER BY s.start_date DESC, v.id DESC
+    ORDER BY votingNumber DESC
+  `).all();
+
+interface CongressmanWithStats {
+  id: number;
+  firstName: string;
+  lastName: string;
+  birthDate: string;
+  partyName: string;
+  districtName: string;
+  blockName: string;
+  attendancePresent: number;
+  attendanceAbsent: number;
+  attendanceLicense: number;
+  votesInFavor: number;
+  votesAgainst: number;
+  votesAbsent: number;
+  votesWithMajority: number;
+  votesAgainstMajority: number;
+}
+
+export const getActiveCongressmenWithTotalStats = () =>
+  db.prepare<[], CongressmanWithStats>(`
+    SELECT
+      c.id,
+      c.first_name AS firstName,
+      c.last_name AS lastName,
+      c.birth_date AS birthDate,
+      p.short_name AS partyName,
+      d.name AS districtName,
+      COALESCE(b.short_name, 'Independiente') AS blockName,
+      COALESCE(cs.attendance_present, 0) AS attendancePresent,
+      COALESCE(cs.attendance_absent, 0)  AS attendanceAbsent,
+      COALESCE(cs.attendance_license, 0) AS attendanceLicense,
+      COALESCE(cs.votes_in_favor, 0)     AS votesInFavor,
+      COALESCE(cs.votes_against, 0)      AS votesAgainst,
+      COALESCE(cs.votes_absent, 0)       AS votesAbsent,
+      COALESCE(cs.votes_with_majority, 0) AS votesWithMajority,
+      COALESCE(cs.votes_against_majority, 0) AS votesAgainstMajority
+    FROM congressmen c
+    LEFT JOIN parties   p ON p.id = c.party_id
+    LEFT JOIN districts d ON d.id = c.district_id
+    LEFT JOIN blocks    b ON b.id = c.block_id
+    LEFT JOIN congressman_stats cs ON cs.id = c.id AND cs.period = '${PERIOD.TOTAL}'
+    WHERE c.status = ${CONGRESSMAN_STATUS.ACTIVE}
+    ORDER BY c.first_name, c.last_name
+  `).all();
+
+interface SimilarityPair {
+  id1: number;
+  id2: number;
+  similarityScore: number;
+  commonVotes: number;
+  sameVotes: number;
+  agreementPercentage: number;
+}
+
+export const getAllSimilarityPairs = () =>
+  db.prepare<[], SimilarityPair>(`
+    SELECT
+      congressman_id AS id1,
+      congressman_2_id AS id2,
+      similarity_score AS similarityScore,
+      common_votes AS commonVotes,
+      same_votes AS sameVotes,
+      agreement_percentage AS agreementPercentage
+    FROM congressman_similarity
+  `).all();
+
+interface VoteRow {
+  votingId: number;
+  subject: string;
+  congressmanId: number;
+  voteType: number;
+}
+
+export const getAllVotesOrderedByVotingNumber = () =>
+  db.prepare<[], VoteRow>(`
+    SELECT
+      vot.id AS votingId,
+      vot.subject,
+      v.congressman_id AS congressmanId,
+      v.vote_type AS voteType
+    FROM votes v
+    JOIN voting vot ON v.voting_id = vot.id
+    ORDER BY vot.voting_number DESC
   `).all();

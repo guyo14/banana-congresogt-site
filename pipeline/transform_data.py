@@ -97,10 +97,10 @@ def run_transform():
         'extraordinary': SessionType.extraordinary.value,
         'solemn': SessionType.solemn.value,
     })
-    vot_df.drop(columns=["start_date"], inplace=True)
 
     s_df['start_date'] = pd.to_datetime(s_df['start_date'])
     s_df['period'] = s_df['start_date'].dt.year.astype(str)
+    vot_df['start_date'] = pd.to_datetime(vot_df['start_date'])
 
     # Replace null block_id with -1
     c_df['block_id'] = c_df['block_id'].fillna(-1).astype(int)
@@ -156,6 +156,9 @@ def run_transform():
     v_df = v_df.merge(vot_stats[['voting_id', 'majority']], on='voting_id', how='left')
     vot_stats.rename(columns={'voting_id': 'id'}, inplace=True)
     vot_df = vot_df.merge(vot_stats, on='id', how='left')
+    vot_df = vot_df.sort_values('start_date', kind='stable').reset_index(drop=True)
+    vot_df['voting_number'] = np.arange(1, len(vot_df) + 1)
+    vot_df['session_voting_number'] = vot_df.groupby('session_id').cumcount() + 1
     vot_df.to_csv('data/voting.csv', index=False)
     
     # Add with_majority when the vote is aligned to the majority

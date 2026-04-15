@@ -61,14 +61,14 @@ const formatDate = (dateString: string): string => {
 
   <div class="votation-list" id="votationList">
     {
-      voting.map((v, index) => {
+      voting.map((v) => {
         const typeLabel = getSessionTypeString(v.sessionType);
         const sessionTag = `${v.period} Sesión ${typeLabel} No. ${v.sessionNumber}`;
 
         return (
           <VotationCard
             href={`/votaciones/${v.id}`}
-            number={voting.length - index}
+            number={v.votingNumber}
             subject={v.subject}
             votesInFavor={v.votesInFavor}
             votesAgainst={v.votesAgainst}
