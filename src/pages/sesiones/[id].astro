@@ -9,8 +9,13 @@ import {
   ATTENDANCE_STATUS,
   ATTENDANCE_STATUS_STRING,
 } from "../../lib/mappers.ts";
-import {getCongressmenSessionAction, getAllSessionsId, getSessionSummary, getVotingBySession} from "../../lib/queries.ts";
-import {getVotingPath} from "../../lib/paths.ts";
+import {
+  getCongressmenSessionAction,
+  getAllSessionsId,
+  getSessionSummary,
+  getVotingBySession,
+} from "../../lib/queries.ts";
+import { getVotingPath } from "../../lib/paths.ts";
 
 export async function getStaticPaths() {
   return getAllSessionsId().map((s) => ({
@@ -26,7 +31,7 @@ if (!session) throw new Error(`Session ${id} not found`);
 const voting = getVotingBySession(id);
 
 // Fetch ALL congressmen with attendance for this session (present + absent + license)
-const allMembers = getCongressmenSessionAction(id)
+const allMembers = getCongressmenSessionAction(id);
 
 const typeLabel = getSessionTypeString(session.type);
 
@@ -96,7 +101,7 @@ const ATTENDANCE_FILTERS = [
     {
       voting.length > 0 && (
         <section class="section-card glass-panel trend-section">
-          <h2 class="section-title">Tendencia de Votaciones</h2>
+          <h2 class="section-title">Presencia en Votaciones</h2>
           <LineChart
             labels={lineLabels}
             datasets={[
@@ -158,8 +163,9 @@ const ATTENDANCE_FILTERS = [
     <h2 class="section-title">
       Asistencia de Diputados
       <span class="sort-note">
-        {session.present} presentes · {session.absent} ausentes · {session.license} con
-        licencia
+        {session.present} presentes · {session.absent} ausentes · {
+          session.license
+        } con licencia
       </span>
     </h2>
     <GroupedActionTabs
@@ -186,7 +192,6 @@ const ATTENDANCE_FILTERS = [
       });
     });
   }
-
 </script>
 
 <style>
