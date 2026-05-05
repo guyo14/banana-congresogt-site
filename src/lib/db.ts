@@ -48,20 +48,13 @@ interface Voting {
     start_date: string;
     voting_number: number;
     session_voting_number: number;
-    votes_in_favor_x: number;
-    votes_against_x: number;
-    votes_absent_x: number;
-    attendance_present_x: number;
-    attendance_absent_x: number;
-    attendance_license_x: number;
-    majority_x: number;
-    votes_in_favor_y: number;
-    votes_against_y: number;
-    votes_absent_y: number;
-    attendance_present_y: number;
-    attendance_absent_y: number;
-    attendance_license_y: number;
-    majority_y: number;
+    votes_in_favor: number;
+    votes_against: number;
+    votes_absent: number;
+    attendance_present: number;
+    attendance_absent: number;
+    attendance_license: number;
+    majority: number;
 }
 
 interface Vote {
