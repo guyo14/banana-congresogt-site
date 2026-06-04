@@ -357,7 +357,14 @@ async def fetch_votes(voting_id, session_id, congressmen_dict):
                     for row in tbody.find_all("tr"):
                         cols = row.find_all("td")
                         if len(cols) >= 1:
+                            if "dataTables_empty" in cols[0].get("class", []):
+                                continue
+                            
                             raw_name = cols[0].text.strip()
+                            # Fallback check for empty table text
+                            if "Ningún dato disponible" in raw_name or "Ningún registro coincidente" in raw_name:
+                                continue
+
                             c_id = match_congressman(raw_name, congressmen_dict)
                             if c_id:
                                 votes_records.append({
