@@ -1,4 +1,5 @@
 id,first_name,last_name,party_id,district_id,birth_date,status,block_id
+979,Ivana,Bonilla Oliva,1,5,1990-02-03,0,11
 41,Oscar Rolando,Corleto Rivera,1,1,1963-06-27,0,11
 950,Edin Alexander,De Jesús Mejía,9,14,1979-09-30,0,7
 944,Mynor Alfonso,De la Rosa Palacios,4,13,1989-09-08,0,4
@@ -105,7 +106,6 @@ id,first_name,last_name,party_id,district_id,birth_date,status,block_id
 945,Marco Alejandro,Pérez Toribio,4,13,1989-01-06,0,4
 946,Ronald Yomelfy,Portillo Cordón,4,13,1990-02-13,0,4
 974,Julio César,Portillo Paz,17,24,1990-12-02,0,2
-809,Juán Ignacio,Quijada Heredia,1,5,1952-03-08,0,11
 957,Guillermo Antonio,Ralda Conde,17,17,1975-02-05,0,2
 922,Darwin Edgardo,Ramírez Cameros,1,10,1989-08-06,0,11
 931,Nery Mamfredo,Rodas Méndez,17,13,1972-03-03,0,2
@@ -161,3 +161,4 @@ id,first_name,last_name,party_id,district_id,birth_date,status,block_id
 155,Andrea Beatríz,Villagrán Antón de Pantoja,6,3,1992-01-02,0,-1
 938,Ana Patricia,Orantes Thomas,6,13,1969-01-20,1,-1
 936,Jonathan Kiril Thomas,Menkos Zeissig,6,13,1975-06-29,1,-1
+809,Juán Ignacio,Quijada Heredia,1,5,1952-03-08,1,-1
