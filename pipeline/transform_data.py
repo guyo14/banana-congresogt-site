@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine
@@ -38,13 +39,13 @@ class SessionType(IntEnum):
 load_dotenv()
 
 def get_engine():
+    user = quote_plus(os.getenv('DB_USER') or 'postgres')
+    password = quote_plus(os.getenv('DB_PASSWORD') or 'postgres')
+    host = os.getenv('DB_HOST') or 'localhost'
+    port = os.getenv('DB_PORT') or '5432'
+    dbname = os.getenv('DB_NAME') or 'postgres'
     return create_engine(
-        f"postgresql+psycopg2://"
-        f"{os.getenv('DB_USER', 'postgres')}:"
-        f"{os.getenv('DB_PASSWORD', 'postgres')}@"
-        f"{os.getenv('DB_HOST', 'localhost')}:"
-        f"{os.getenv('DB_PORT', '5432')}/"
-        f"{os.getenv('DB_NAME', 'postgres')}"
+        f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
     )
 
 def run_transform():

@@ -1,0 +1,51 @@
+name: Update Congressional Data
+
+on:
+  schedule:
+    # 6:00 AM Guatemala time (UTC-6), Monday–Friday -> 12:00 UTC Mon–Fri
+    - cron: '0 12 * * 1-5'
+    # 6:00 PM Guatemala time (UTC-6), Monday–Friday -> 00:00 UTC Tue–Sat
+    - cron: '0 0 * * 2-6'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and Playwright Chromium
+        run: |
+          uv sync --locked
+          uv run playwright install --with-deps chromium
+
+      - name: Run scraping and transformation pipeline
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT || '5432' }}
+          DB_NAME: ${{ secrets.DB_NAME || 'postgres' }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: uv run main.py pipeline
+
+      - name: Commit and push updated CSV data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/*.csv
+          if git diff --staged --quiet; then
+            echo "No new session or voting changes to commit."
+          else
+            TIMESTAMP=$(TZ="America/Guatemala" date +'%Y-%m-%d %H:%M CST')
+            git commit -m "chore(data): update congressional data ($TIMESTAMP)"
+            git push
+          fi
