@@ -156,9 +156,9 @@ id,first_name,last_name,party_id,district_id,birth_date,status,block_id
 875,Raúl Antonio,Solórzano Quevedo,1,16,1993-02-01,0,-1
 960,José Diego,Toledo Cruz,6,18,1989-12-16,0,-1
 842,Jorge Romeo,Castro Delgado,9,8,1968-05-15,0,-1
-978,Luis Enrique,Ventura Urbina,6,13,1994-09-02,0,-1
 934,Manfredo Duvalier,Castañón González,6,13,1989-11-20,0,-1
 155,Andrea Beatríz,Villagrán Antón de Pantoja,6,3,1992-01-02,0,-1
-938,Ana Patricia,Orantes Thomas,6,13,1969-01-20,1,-1
 936,Jonathan Kiril Thomas,Menkos Zeissig,6,13,1975-06-29,1,-1
+978,Luis Enrique,Ventura Urbina,6,13,1994-09-02,1,-1
 809,Juán Ignacio,Quijada Heredia,1,5,1952-03-08,1,-1
+938,Ana Patricia,Orantes Thomas,6,13,1969-01-20,0,-1
